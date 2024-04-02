@@ -358,7 +358,7 @@ namespace Eco.Mods.Companies
 
         private bool CheckLegalPersonCanJoinSettlement(Settlement target, out LocString errorMessage)
         {
-            var canJoinResult = target.ImmigrationPolicy?.CheckCanJoinAsCitizen(LegalPerson) ?? Result.Succeeded;
+            var canJoinResult = target.ImmigrationPolicy?.CheckCanJoinAsCitizen(LegalPerson, joinAsDirectCitizen: true) ?? Result.Succeeded;
             if (!canJoinResult.Success)
             {
                 errorMessage = canJoinResult.Message;
