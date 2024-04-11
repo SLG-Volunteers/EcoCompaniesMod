@@ -263,6 +263,8 @@ namespace Eco.Mods.Companies
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
 
+            if (placeOrPickUpObject.WorldObject == null || placeOrPickUpObject.Citizen == null) { return; }
+
             // Look for attempt to place a new homestead
             if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PlacingObject && placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem)
             {
