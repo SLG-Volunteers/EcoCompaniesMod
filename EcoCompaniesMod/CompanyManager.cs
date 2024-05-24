@@ -20,7 +20,7 @@ namespace Eco.Mods.Companies
     using Gameplay.Auth;
     using Gameplay.Aliases;
     using Gameplay.Settlements;
-    using Gameplay.Settlements.Components;
+    using Gameplay.Settlements.Civics;
     using Gameplay.Items;
 
     using Shared.Utils;
@@ -207,12 +207,6 @@ namespace Eco.Mods.Companies
                         var destCompany = Company.GetFromBankAccount(moneyGameAction.TargetBankAccount);
                         destCompany?.OnReceiveMoney(moneyGameAction);
                         break;
-                    case PropertyTransfer propertyTransferAction:
-                        var oldOwnerCompany = Company.GetFromLegalPerson(propertyTransferAction.CurrentOwner);
-                        oldOwnerCompany?.OnNoLongerOwnerOfProperty(propertyTransferAction.RelatedDeeds);
-                        var newOwnerCompany = Company.GetFromLegalPerson(propertyTransferAction.NewOwner);
-                        newOwnerCompany?.OnNowOwnerOfProperty(propertyTransferAction.RelatedDeeds);
-                        break;
                 }
             }
             catch (Exception ex)
@@ -259,46 +253,65 @@ namespace Eco.Mods.Companies
             }
         }
 
+        public void InterceptStartHomesteadGameAction(StartHomestead startHomestead, ref PostResult lawPostResult)
+        {
+            if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
+
+            if (startHomestead.Citizen == null) { return; }
+
+            // Check if they're employed
+            var employer = Company.GetEmployer(startHomestead.Citizen);
+            if (employer == null) { return; }
+
+            // If the company currently has a HQ, block it
+            if (employer.HasHQDeed)
+            {
+                lawPostResult.MergeFailLoc($"Can't start a homestead when you're an employee of a company with a HQ");
+                Logger.Debug($"Preventing '{startHomestead.Citizen.Name}' from placing a homestead as their employer '{employer.Name}' already has a HQ '{employer.HQDeed.Name}'");
+                return;
+            }
+
+            // This deed will become the company HQ
+            lawPostResult.AddPostEffect(() =>
+            {
+                ClaimHomesteadAsHQAsyncRetry(startHomestead.Citizen, employer);
+            });
+        }
+
         public void InterceptPlaceOrPickupObjectGameAction(PlaceOrPickUpObject placeOrPickUpObject, ref PostResult lawPostResult)
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
 
-            if (placeOrPickUpObject.WorldObject == null || placeOrPickUpObject.Citizen == null) { return; }
+            if (placeOrPickUpObject.Citizen == null) { return; }
 
-            // Look for attempt to place a new homestead
-            if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PlacingObject && placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem)
+            // After any pickup, try and fixup homestead claim items
+            if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PickingUpObject)
             {
-                // Check if they're employed
-                var employer = Company.GetEmployer(placeOrPickUpObject.Citizen);
-                if (employer == null) { return; }
-
-                // If the company currently has a HQ, block it
-                if (employer.HQDeed != null)
-                {
-                    lawPostResult.MergeFailLoc($"Can't start a homestead when you're an employee of a company with a HQ");
-                    // Due to a bug, this results in a deed still being created, so let's setup a delay and try and fix it
-                    Task.Delay(250).ContinueWith((t) => TryFixupDodgyDeeds(placeOrPickUpObject.Citizen));
-                    return;
-                }
-
-                // This deed will become their HQ
                 lawPostResult.AddPostEffect(() =>
                 {
-                    ClaimHomesteadAsHQAsyncRetry(placeOrPickUpObject.Citizen, employer);
+                    Task.Delay(250).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
                 });
             }
+        }
 
-            // Look for attempt to pickup HQ homestead
-            if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PickingUpObject && placeOrPickUpObject.WorldObject.TryGetComponent<HomesteadFoundationComponent>(out var component))
+        public void HandleDeedDestroyed(Deed deed)
+        {
+            if (deed.Owner is not User owner) { return; }
+            var company = Company.GetFromLegalPerson(owner);
+            if (company != null)
             {
-                var company = Company.GetFromLegalPerson(component.Creator);
-                if (company != null && company.IsEmployee(placeOrPickUpObject.Citizen))
-                {
-                    lawPostResult.AddPostEffect(() =>
-                    {
-                        Task.Delay(250).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
-                    });
-                }
+                company.OnNoLongerOwnerOfProperty(deed);
+            }
+        }
+
+        public void HandleDeedOwnerChanged(Deed deed)
+        {
+            if (deed.Owner is not User newOwner) { return; }
+            var company = Company.GetFromLegalPerson(newOwner);
+            if (company != null)
+            {
+                // Note: we're assuming that we're not already an owner of the deed (e.g. change between aliases both containing the legal person)
+                company.OnNowOwnerOfProperty(deed);
             }
         }
 
@@ -339,27 +352,11 @@ namespace Eco.Mods.Companies
             Task.Delay(250).ContinueWith((t) => ClaimHomesteadAsHQ(employee, employer, false));
         }
 
-        private void TryFixupDodgyDeeds(User user)
-        {
-            var allOwnedDeeds = PropertyManager.GetAllDeeds()
-                .Where(deed => deed?.Owners?.ContainsUser(user) ?? false)
-                .ToArray();
-            foreach (var deed in allOwnedDeeds)
-            {
-                if (!deed.HostObject.TryGetObject(out _))
-                {
-                    Logger.Info($"Found orphaned homestead '{deed.Name}' which wasn't properly cleaned up when an employee tried to place a homestead, cleaning it up now");
-                    PropertyManager.ForceRemoveDeed(deed);
-                }
-            }
-        }
-
         private void ClaimHomesteadAsHQ(User employee, Deed deed, Company employer)
         {
             if (deed.Owner == employer.LegalPerson) { return; }
             deed.ForceChangeOwners(employer.LegalPerson, OwnerChangeType.Normal);
             employee.HomesteadDeed = null;
-            employer.OnNowOwnerOfProperty(deed);
         }
 
         internal static string GetLegalPersonName(string companyName)

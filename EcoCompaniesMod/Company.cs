@@ -11,6 +11,7 @@ namespace Eco.Mods.Companies
     using Core.Utils;
     using Core.Properties;
     using Core.Serialization;
+    using Core.PropertyHandling;
 
     using Gameplay.Utils;
     using Gameplay.Players;
@@ -82,12 +83,21 @@ namespace Eco.Mods.Companies
 
         public Deed HQDeed => LegalPerson?.HomesteadDeed;
 
+        public bool HasHQDeed
+        {
+            get
+            {
+                var deed = HQDeed;
+                return deed != null && !deed.Destroying && !deed.IsDestroyed;
+            }
+        }
+
         public PlotsComponent HQPlots
         {
             get
             {
                 var deed = HQDeed;
-                if (deed == null) { return null; }
+                if (deed == null || deed.Destroying || deed.IsDestroyed) { return null; }
                 if (!deed.HostObject.TryGetObject(out var worldObj)) { return null; }
                 if (!worldObj.TryGetComponent<PlotsComponent>(out var plotsComponent)) { return null; }
                 return plotsComponent;
@@ -146,6 +156,13 @@ namespace Eco.Mods.Companies
                     OnLegalPersonCitizenshipChanged(ev);
                 });
             });
+            PropertyManager.Initializer.RunIfOrWhenInitialized(() =>
+            {
+                foreach (var deed in OwnedDeeds)
+                {
+                    this.WatchProp(deed, nameof(Deed.Owner), OnDeedOwnerChanged);
+                }
+            });
 
             // Setup bank account
             if (BankAccount == null)
@@ -164,10 +181,14 @@ namespace Eco.Mods.Companies
 
             // Setup HQ deed
             RefreshHQPlotsSize();
+            if (HasHQDeed)
+            {
+                
+            }
         }
 
         [OnDeserialized]
-        void OnDeserialized()
+        private void OnDeserialized()
         {
             RefreshHQPlotsSize();
         }
@@ -499,6 +520,18 @@ namespace Eco.Mods.Companies
 
         #region Property Management
 
+        private void OnDeedOwnerChanged(object obj, MemberChangedBeforeAfterEventArgs ev)
+        {
+            if (obj is not Deed deed) { return; }
+            if (ev.Before is not IAlias oldOwner) { return; }
+            if (ev.After is not IAlias newOwner) { return; }
+            Logger.Debug($"Deed {deed} (for {Name}) changed owner from {oldOwner.Name} to {newOwner.Name}");
+            if (oldOwner.ContainsUser(LegalPerson) && !newOwner.ContainsUser(LegalPerson))
+            {
+                OnNoLongerOwnerOfProperty(deed);
+            }
+        }
+
         private void AddBasePlotsOverride(PlotsComponent plots)
         {
             if (plots.GetModdedBaseClaims == GetModdedBaseClaims) { return; }
@@ -547,9 +580,13 @@ namespace Eco.Mods.Companies
 
         public void OnNowOwnerOfProperty(Deed deed)
         {
+            Logger.Debug($"'{Name}' is now owner of property '{deed.Name}'");
+            this.WatchProp(deed, nameof(Deed.Owner), OnDeedOwnerChanged);
             if (deed.IsHomesteadDeed)
             {
                 LegalPerson.HomesteadDeed = deed;
+                LegalPerson.MarkDirty();
+
                 Registrars.Get<Deed>().Rename(deed, $"{Name} HQ", true);
 
                 Settlement? oldOwnerCitizenship = null;
@@ -601,31 +638,27 @@ namespace Eco.Mods.Companies
                 SendCompanyMessage(Localizer.Do($"{deed.UILink()} is now the new HQ of {this.UILink()}"));
 
                 deed.Residency.AllowPlotsUnclaiming = true;
-                deed.MarkDirty();
             }
             else
             {
                 SendCompanyMessage(Localizer.Do($"{this.UILink()} is now the owner of {deed.UILink()}"));
             }
             UpdateDeedAuthList(deed);
-        }
-
-        public void OnNowOwnerOfProperty(IEnumerable<Deed> deeds)
-        {
-            foreach (var deed in deeds)
-            {
-                OnNowOwnerOfProperty(deed);
-            }
             MarkTooltipDirty();
         }
 
         public void OnNoLongerOwnerOfProperty(Deed deed)
         {
+            Logger.Debug($"'{Name}' is no longer owner of property '{deed.Name}'");
+            this.Unwatch(deed);
             if (deed == HQDeed)
             {
                 var hqPlots = HQPlots;
                 if (hqPlots != null) { RemoveBasePlotsOverride(hqPlots); }
+
                 LegalPerson.HomesteadDeed = null;
+                LegalPerson.MarkDirty();
+
                 SendCompanyMessage(Localizer.Do($"{deed.UILink()} is no longer the HQ of {this.UILink()}"));
                 deed.Residency.Invitations.InvitationList.Clear();
             }
@@ -634,14 +667,7 @@ namespace Eco.Mods.Companies
                 SendCompanyMessage(Localizer.Do($"{this.UILink()} is no longer the owner of {deed.UILink()}"));
             }
             deed.Accessors.Clear();
-        }
-
-        public void OnNoLongerOwnerOfProperty(IEnumerable<Deed> deeds)
-        {
-            foreach (var deed in deeds)
-            {
-                OnNoLongerOwnerOfProperty(deed);
-            }
+            deed.MarkDirty();
             MarkTooltipDirty();
         }
 
@@ -791,7 +817,7 @@ namespace Eco.Mods.Companies
             MarkTooltipDirty();
         }
 
-        private void OnLegalPersonCitizenshipChanged(Core.PropertyHandling.MemberChangedBeforeAfterEventArgs ev)
+        private void OnLegalPersonCitizenshipChanged(MemberChangedBeforeAfterEventArgs ev)
         {
             if (ev.Before is Settlement beforeSettlement)
             {
@@ -856,8 +882,8 @@ namespace Eco.Mods.Companies
             {
                 deed.Residency.Invitations.InvitationList.Set(AllEmployees);
                 deed.Residency.AllowPlotsUnclaiming = true;
-                deed.MarkDirty();
             }
+            deed.MarkDirty();
         }
 
         public void UpdateBankAccountAuthList(BankAccount bankAccount)

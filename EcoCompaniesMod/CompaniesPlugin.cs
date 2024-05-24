@@ -23,6 +23,7 @@ namespace Eco.Mods.Companies
     using Shared.IoC;
 
     using Gameplay.Players;
+    using Gameplay.Systems;
     using Gameplay.Systems.TextLinks;
     using Gameplay.Civics.GameValues;
     using Gameplay.Civics.Laws;
@@ -32,10 +33,11 @@ namespace Eco.Mods.Companies
     using Gameplay.GameActions;
     using Gameplay.Utils;
     using Gameplay.Economy;
-    using Gameplay.Systems;
+    using Gameplay.Economy.Transfer;
+    using Gameplay.Settlements.Civics;
+    using Gameplay.Property;
 
     using Simulation.Time;
-    using Eco.Gameplay.Economy.Transfer;
 
     [Localized]
     public class CompaniesConfig
@@ -77,9 +79,14 @@ namespace Eco.Mods.Companies
         public PostResult Perform(GameAction action, AccountChangeSet acc)
         {
             var result = internalLawManager.Perform(action, acc);
-            if (action is PlaceOrPickUpObject placeOrPickUpObject)
+            switch (action)
             {
-                CompanyManager.Obj.InterceptPlaceOrPickupObjectGameAction(placeOrPickUpObject, ref result);
+                case StartHomestead startHomesteadAction:
+                    CompanyManager.Obj.InterceptStartHomesteadGameAction(startHomesteadAction, ref result);
+                    break;
+                case PlaceOrPickUpObject placeOrPickupObjectAction:
+                    CompanyManager.Obj.InterceptPlaceOrPickupObjectGameAction(placeOrPickupObjectAction, ref result);
+                    break;
             }
             return result;
         }
@@ -135,6 +142,8 @@ namespace Eco.Mods.Companies
             InstallGameValueHack();
             BankAccount.PermissionsChangedEvent.Add(OnBankAccountPermissionsChanged);
             GameData.Obj.VoidStorageManager.VoidStorages.Callbacks.OnAdd.Add(OnVoidStorageAdded);
+            PropertyManager.DeedDestroyedEvent.Add(OnDeedDestroyed);
+            PropertyManager.DeedOwnerChangedEvent.Add(OnDeedOwnerChanged);
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)
@@ -164,6 +173,17 @@ namespace Eco.Mods.Companies
                 if (company == null) { continue; }
                 company.OnLegalPersonGainedVoidStorage(voidStorage);
             }
+        }
+
+        private void OnDeedDestroyed(Deed deed, User performer)
+        {
+            CompanyManager.HandleDeedDestroyed(deed);
+        }
+
+        private void OnDeedOwnerChanged(Deed deed)
+        {
+            if (deed.Destroying || deed.IsDestroyed) { return; }
+            CompanyManager.HandleDeedOwnerChanged(deed);
         }
 
         private void InstallLawManagerHack()
