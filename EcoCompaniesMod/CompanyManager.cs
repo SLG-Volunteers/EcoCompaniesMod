@@ -130,7 +130,7 @@ namespace Eco.Mods.Companies
                 return CreateAttempt.Invalid;
             }
 
-            name = name.Trim();
+            name = name.Trim().ProfanityFiltered();
             if (!ValidateName(name, out errorMessage)) { return CreateAttempt.Invalid; }
             name = Registrars.Get<Company>().GetUniqueName(name);
 

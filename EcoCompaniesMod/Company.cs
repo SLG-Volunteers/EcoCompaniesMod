@@ -38,6 +38,7 @@ namespace Eco.Mods.Companies
     using Shared.Items;
     using Shared.IoC;
     using Shared.Utils;
+    using Eco.Core.Plugins;
 
     public readonly struct ShareholderHolding
     {
@@ -137,16 +138,12 @@ namespace Eco.Mods.Companies
             base.Initialize();
 
             // Setup employees
-            if (Employees == null)
-            {
-                Employees = new ThreadSafeHashSet<User>();
-            }
+            Employees ??= new ThreadSafeHashSet<User>();
 
             // Setup legal person
             if (LegalPerson == null)
             {
-                string fakeId = Guid.NewGuid().ToString();
-                LegalPerson = UserManager.Obj.PrepareNewUser(fakeId, fakeId, Registrars.Get<User>().GetUniqueName(CompanyManager.GetLegalPersonName(Name)));
+                LegalPerson = TestUtils.MakeTestUser(Registrars.Get<User>().GetUniqueName(CompanyManager.GetLegalPersonName(Name)));
                 LegalPerson.Initialize();
             }
             SettlementCommon.Initializer.RunIfOrWhenInitialized(() =>
@@ -181,10 +178,6 @@ namespace Eco.Mods.Companies
 
             // Setup HQ deed
             RefreshHQPlotsSize();
-            if (HasHQDeed)
-            {
-                
-            }
         }
 
         [OnDeserialized]
