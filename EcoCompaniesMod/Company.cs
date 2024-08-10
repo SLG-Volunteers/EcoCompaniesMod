@@ -583,7 +583,6 @@ namespace Eco.Mods.Companies
                 if (deed.HostObject.TryGetObject(out var hostObject))
                 {
                     oldOwnerCitizenship = hostObject.Creator.DirectCitizenship;
-                    //hostObject.Creator = LegalPerson;
                     if (worldObjectCreator == null)
                     {
                         Logger.Error($"Failed to find property WorldObject.Creator via reflection");
@@ -592,7 +591,7 @@ namespace Eco.Mods.Companies
                     {
                         worldObjectCreator.SetValue(hostObject, LegalPerson, null);
                     }
-                    //hostObject.UpdateOwnerName(OwnerChangeType.Normal);
+
                     if (worldObjectUpdateOwnerName == null)
                     {
                         Logger.Error($"Failed to find property WorldObject.UpdateOwnerName via reflection");
@@ -605,7 +604,6 @@ namespace Eco.Mods.Companies
 
                     if (hostObject.TryGetComponent<HomesteadFoundationComponent>(out var foundationComponent))
                     {
-                        // foundationComponent.CitizenshipUpdated(true);
                         if (homesteadFoundationComponentCitizenshipUpdated == null)
                         {
                             Logger.Error($"Failed to find method HomesteadFoundationComponent.CitizenshipUpdated via reflection");
@@ -855,8 +853,8 @@ namespace Eco.Mods.Companies
         {
             if (DirectCitizenship == settlement) { return; }
 
-			DirectCitizenship?.Citizenship.DirectCitizenRoster.Leave(LegalPerson);
-			settlement?.Citizenship.DirectCitizenRoster.AddToRoster(null, LegalPerson, true);
+            DirectCitizenship?.Citizenship.DirectCitizenRoster.Leave(LegalPerson);
+            settlement?.Citizenship.DirectCitizenRoster.AddToRoster(null, LegalPerson, true);
 
             LegalPerson.DirectCitizenship = settlement;
         }

@@ -1,4 +1,3 @@
-﻿using Eco.Server;
 ﻿using System;
 using System.Linq;
 using System.Diagnostics.CodeAnalysis;
@@ -51,9 +50,9 @@ namespace Eco.Mods.Companies
     {
         public IPersistent StorageHandle { get; set; }
 
-		[Serialized] public Registrar<Company> Companies = new();
+        [Serialized] public Registrar<Company> Companies = new();
 
-		public readonly PeriodicUpdateConfig UpdateTimer = new(true);
+        public readonly PeriodicUpdateConfig UpdateTimer = new(true);
 
         public void InitializeRegistrars()
         {
@@ -114,10 +113,7 @@ namespace Eco.Mods.Companies
 
         static CompaniesPlugin()
         {
-            //CosturaUtility.Initialize();
-            //Harmony.DEBUG = true;
-            //var harmony = new Harmony("Eco.Mods.Companies");
-            //harmony.PatchAll(Assembly.GetExecutingAssembly());
+
         }
 
         public CompaniesPlugin()
