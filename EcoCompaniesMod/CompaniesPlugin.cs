@@ -1,3 +1,4 @@
+﻿using Eco.Server;
 ﻿using System;
 using System.Linq;
 using System.Diagnostics.CodeAnalysis;
@@ -5,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Collections.Generic;
 
-using HarmonyLib;
 
 namespace Eco.Mods.Companies
 {
@@ -51,9 +51,9 @@ namespace Eco.Mods.Companies
     {
         public IPersistent StorageHandle { get; set; }
 
-        [Serialized] public Registrar<Company> Companies = new ();
+		[Serialized] public Registrar<Company> Companies = new();
 
-        public readonly PeriodicUpdateConfig UpdateTimer = new PeriodicUpdateConfig(true);
+		public readonly PeriodicUpdateConfig UpdateTimer = new(true);
 
         public void InitializeRegistrars()
         {

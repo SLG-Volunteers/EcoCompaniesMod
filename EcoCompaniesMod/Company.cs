@@ -175,15 +175,12 @@ namespace Eco.Mods.Companies
                 SharesCurrency = CurrencyManager.GetPlayerCurrency(LegalPerson);
                 SharesCurrency.SetName(null, Registrars.Get<Currency>().GetUniqueName(CompanyManager.GetCompanyCurrencyName(Name)));
             }
-
-            // Setup HQ deed
-            RefreshHQPlotsSize();
         }
 
         [OnDeserialized]
         private void OnDeserialized()
         {
-            RefreshHQPlotsSize();
+
         }
 
         public bool DoesOwnBankAccount(BankAccount bankAccount)
@@ -857,14 +854,10 @@ namespace Eco.Mods.Companies
         private void SetCitizenOf(Settlement settlement)
         {
             if (DirectCitizenship == settlement) { return; }
-            if (DirectCitizenship != null)
-            {
-                DirectCitizenship.Citizenship.DirectCitizenRoster.Leave(LegalPerson);
-            }
-            if (settlement != null)
-            {
-                settlement.Citizenship.DirectCitizenRoster.AddToRoster(null, LegalPerson, true);
-            }
+
+			DirectCitizenship?.Citizenship.DirectCitizenRoster.Leave(LegalPerson);
+			settlement?.Citizenship.DirectCitizenRoster.AddToRoster(null, LegalPerson, true);
+
             LegalPerson.DirectCitizenship = settlement;
         }
 
@@ -937,26 +930,24 @@ namespace Eco.Mods.Companies
             sb.Append(TextLoc.HeaderLoc($"CEO: "));
             sb.AppendLine(Ceo.UILinkNullSafe());
             sb.AppendLine(TextLoc.HeaderLoc($"Employees:"));
-            sb.AppendLine(this.Employees.Any() ? this.Employees.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("citizen", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+			sb.AppendLine(Employees.Any() ? Employees.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("citizen", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Finances: "));
-            sb.AppendLine(this.OwnedAccounts.Any() ? this.OwnedAccounts.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("account", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+			sb.AppendLine(OwnedAccounts.Any() ? OwnedAccounts.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("account", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"HQ: "));
-            sb.AppendLine(this.HQDeed != null ? this.HQDeed.UILink() : Localizer.DoStr("None."));
+			sb.AppendLine(HQDeed != null ? HQDeed.UILink() : Localizer.DoStr("None."));
             sb.AppendLine(TextLoc.HeaderLoc($"Property:"));
-            sb.AppendLine(this.OwnedDeeds.Any() ? this.OwnedDeeds.Where(x => x != HQDeed).Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("deed", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+			sb.AppendLine(OwnedDeeds.Any() ? OwnedDeeds.Where(x => x != HQDeed).Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("deed", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.AppendLine(TextLoc.HeaderLoc($"Shareholders:"));
-            sb.AppendLine(this.Shareholders.Any() ? this.Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+			sb.AppendLine(Shareholders.Any() ? Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Citizenship: "));
-            sb.AppendLine(this.DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None."));
+			sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None."));
             return sb.ToLocString();
         }
 
         [NewTooltip(CacheAs.Instance | CacheAs.User, 110)]
         public LocString PerUserTooltip(User user)
         {
-            var sb = new LocStringBuilder();
-            if (user == Ceo)
-            {
+			if (user == Ceo) {
                 return Localizer.DoStr("You are the CEO of this company.");
             }
             else if (IsEmployee(user))
