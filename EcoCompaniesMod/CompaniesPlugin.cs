@@ -95,6 +95,11 @@ namespace Eco.Mods.Companies
                     break;
                 case ReputationTransfer transferTransferAction: // intercepts new reputation actions
                     CompanyManager.Obj.InterceptReputationTransfer(transferTransferAction, ref result);
+                    if (result.Success) // update both sides if we had success
+                    {
+                        Company.GetEmployer(transferTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
+                        Company.GetEmployer(transferTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
+                    }
                     break;
             }
             return result;
