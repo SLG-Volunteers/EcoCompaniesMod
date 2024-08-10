@@ -60,7 +60,10 @@ namespace Eco.Mods.Companies
     {
         private bool inReceiveMoney, inGiveMoney;
 
-        public static Company GetEmployer(User user)
+		public static bool IsInvited(User user, Company company)
+			=> company.InviteList.Contains(user);
+
+		public static Company GetEmployer(User user)
             => Registrars.Get<Company>().Where(x => x.IsEmployee(user)).SingleOrDefault();
 
         public static Company GetFromLegalPerson(User user)
@@ -911,7 +914,7 @@ namespace Eco.Mods.Companies
             deed.Accessors.Set(AllEmployees);
             if (deed == HQDeed)
             {
-                deed.Residency.Invitations.InvitationList.Set(AllEmployees);
+                deed.Residency.Invitations.InvitationList.Set(AllEmployees.Where(x => !deed.Residency.Residents.Contains(x)));
                 deed.Residency.AllowPlotsUnclaiming = true;
             }
             deed.MarkDirty();

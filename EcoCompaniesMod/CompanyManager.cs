@@ -254,8 +254,8 @@ namespace Eco.Mods.Companies
         }
 		public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
 		{			
-			Company company = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
-			if (company != null) // we do not allow anybody to honor the company legal person
+			var receiverCompany = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
+			if (receiverCompany != null) // we do not allow anybody to honor the company legal person
 			{
 				lawPostResult.Success = false;
 				NotificationManager.ServerMessageToPlayer(
@@ -271,14 +271,14 @@ namespace Eco.Mods.Companies
 			if (!CompaniesPlugin.Obj.Config.CompanyReputationInterceptionEnabled) { return;  }
 
 			// we neither allow the employees to reputate internal
-			company = Company.GetEmployer(reputationTransferData.ReputationSender);
-			if (company != null)
+			var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
+			if (senderCompany != null)
 			{
-				if (company.IsEmployee(reputationTransferData.ReputationReceiver) || company.InviteList.Contains(reputationTransferData.ReputationReceiver))
+				if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
 				{
 					lawPostResult.Success = false;
 					NotificationManager.ServerMessageToPlayer(
-						Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become a) member of {company.UILink()} and can't receive any reputation from you."),
+						Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become a) member of {senderCompany.UILink()} and can't receive any reputation from you."),
 						reputationTransferData.ReputationSender,
 						NotificationCategory.Reputation,
 						NotificationStyle.InfoBox

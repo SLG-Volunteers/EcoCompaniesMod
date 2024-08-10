@@ -108,7 +108,10 @@ namespace Eco.Mods.Companies
 		public static void Invites(User user)
 		{
 			var company = Companies.Company.GetEmployer(user);
-            if (company != null) { return;  }
+            if (company != null) {
+				user.OkBoxLoc($"You are already bounded to {company.UILink()}...");
+				return;  
+            }
 
             var sb = new LocStringBuilder();
 
