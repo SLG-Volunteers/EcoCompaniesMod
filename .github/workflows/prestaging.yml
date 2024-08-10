@@ -1,9 +1,10 @@
-name: build for staging
+name: build for prestatging
 
 on:
   push:
-    branches:
+    branches-ignore:
       - 'staging'
+      - 'master'
 
 jobs:
   build-mod:

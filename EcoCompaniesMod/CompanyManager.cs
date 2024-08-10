@@ -308,16 +308,13 @@ namespace Eco.Mods.Companies
         {
             if (deed.Owner is not User newOwner) { return; }
             var company = Company.GetFromLegalPerson(newOwner);
-            if (company != null)
-            {
-                // Note: we're assuming that we're not already an owner of the deed (e.g. change between aliases both containing the legal person)
-                company.OnNowOwnerOfProperty(deed);
-            }
+
+            // Note: we're assuming that we're not already an owner of the deed (e.g. change between aliases both containing the legal person)
+            company?.OnNowOwnerOfProperty(deed);
         }
 
         private void FixupHomesteadClaimItems(User employee)
         {
-
             var company = Company.GetEmployer(employee);
             if (company == null) { return; }
             // Sweep their inv looking for HomesteadClaimStakeItem items with the "user" field set to the legal person and change it to point at them instead
