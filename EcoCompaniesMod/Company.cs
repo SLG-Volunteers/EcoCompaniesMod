@@ -928,17 +928,17 @@ namespace Eco.Mods.Companies
             sb.Append(TextLoc.HeaderLoc($"CEO: "));
             sb.AppendLine(Ceo.UILinkNullSafe());
             sb.AppendLine(TextLoc.HeaderLoc($"Employees:"));
-			sb.AppendLine(Employees.Any() ? Employees.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("citizen", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(Employees.Any() ? Employees.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("citizen", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Finances: "));
-			sb.AppendLine(OwnedAccounts.Any() ? OwnedAccounts.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("account", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(OwnedAccounts.Any() ? OwnedAccounts.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("account", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"HQ: "));
-			sb.AppendLine(HQDeed != null ? HQDeed.UILink() : Localizer.DoStr("None."));
+            sb.AppendLine(HQDeed != null ? HQDeed.UILink() : Localizer.DoStr("None."));
             sb.AppendLine(TextLoc.HeaderLoc($"Property:"));
-			sb.AppendLine(OwnedDeeds.Any() ? OwnedDeeds.Where(x => x != HQDeed).Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("deed", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(OwnedDeeds.Any() ? OwnedDeeds.Where(x => x != HQDeed).Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("deed", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.AppendLine(TextLoc.HeaderLoc($"Shareholders:"));
-			sb.AppendLine(Shareholders.Any() ? Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(Shareholders.Any() ? Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Citizenship: "));
-			sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None."));
+            sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None."));
             return sb.ToLocString();
         }
 
