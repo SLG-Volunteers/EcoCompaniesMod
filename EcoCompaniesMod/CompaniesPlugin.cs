@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Collections.Generic;
+using Eco.Server;
 
 
 namespace Eco.Mods.Companies
@@ -134,12 +135,19 @@ namespace Eco.Mods.Companies
         public void Initialize(TimedTask timer)
         {
             data.Initialize();
+            Singleton<PluginManager>.Obj.InitComplete += OnPostInitialize;
+
             InstallLawManagerHack();
             InstallGameValueHack();
             BankAccount.PermissionsChangedEvent.Add(OnBankAccountPermissionsChanged);
             GameData.Obj.VoidStorageManager.VoidStorages.Callbacks.OnAdd.Add(OnVoidStorageAdded);
             PropertyManager.DeedDestroyedEvent.Add(OnDeedDestroyed);
             PropertyManager.DeedOwnerChangedEvent.Add(OnDeedOwnerChanged);
+        }
+
+        internal static void OnPostInitialize() {
+            Registrars.Get<Company>().ForEach(company => company.RefreshHQPlotsSize());
+            Logger.Debug($"Set correct plot counts for HQs...");
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)
