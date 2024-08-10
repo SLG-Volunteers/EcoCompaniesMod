@@ -97,14 +97,14 @@ namespace Eco.Mods.Companies
             if (targetCompany.InviteList.Remove(user))
             {
 				targetCompany.SendCompanyMessage(Localizer.Do($"{user.UILink()} has declined the invitation to join the company.")); 
-                user.OkBoxLoc($"You reject the invitation to {targetCompany.UILink()}");
+                user.OkBoxLoc($"You rejected the invitation to {targetCompany.UILink()}");
 			} else
             {
 				user.OkBoxLoc($"You aren't invited invitation to {targetCompany.UILink()}");
 			}
 		}
 
-		[ChatSubCommand("Company", "Rejects an invitation for you to a company.", ChatAuthorizationLevel.User)]
+		[ChatSubCommand("Company", "Shows your invitelist.", ChatAuthorizationLevel.User)]
 		public static void Invites(User user)
 		{
 			var company = Companies.Company.GetEmployer(user);

@@ -39,7 +39,7 @@ namespace Eco.Mods.Companies
     using Shared.IoC;
     using Shared.Utils;
     using Eco.Gameplay.Economy.Reputation;
-    using Eco.Gameplay.Settlements.Culture;
+    using System.Threading.Tasks;
 
     public readonly struct ShareholderHolding
     {
@@ -85,6 +85,7 @@ namespace Eco.Mods.Companies
         [Serialized] public BankAccount BankAccount { get; set; }
 
         [Serialized] public Currency SharesCurrency { get; set; }
+
         [Serialized, ForceSerializeFullObject] CompanyPositiveReputationGiver PositiveReputationGiver { get; set; }
         [Serialized, ForceSerializeFullObject] CompanyNegativeReputationGiver NegativeReputationGiver { get; set; }
 
@@ -216,7 +217,7 @@ namespace Eco.Mods.Companies
             InviteList.Add(target);
             OnInviteListChanged();
             MarkPerUserTooltipDirty(target);
-            target.MailLoc($"You have been invited to join {this.UILink()}. Type '/company join {Name}' to accept.", NotificationCategory.Government);
+            target.MailLoc($"You have been invited to join {this.UILink()}. Type '/company join {Name}' to accept or '/company reject {Name}' to reject.", NotificationCategory.Government);
             SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has invited {target.UILink()} to join the company."));
             errorMessage = LocString.Empty;
             return true;
@@ -755,46 +756,48 @@ namespace Eco.Mods.Companies
             }
         }
 
-		public void UpdateLegalPersonReputation()
+
+        public void UpdateLegalPersonReputation()
         {
-            if (!CompaniesPlugin.Obj.Config.ReputationAveragesEnabled)
-            {
-                ReputationManager.Obj.GetReputation(LegalPerson)?.Relationships.Clear(); // we clear all legal person reputation to remove reputation (silent migration)
-                return;
-            }
-
-            float reputationCountPostive = 0;
-            float reputationCountNegative = 0;
-
-            foreach (var user in AllEmployees)
-            {
-                var _postiveReputation = ReputationManager.Obj.GetPositiveReputation(user);
-                reputationCountPostive += _postiveReputation;
-                reputationCountNegative += _postiveReputation - ReputationManager.Obj.GetRep(user);
-
-            }
-
-            if (reputationCountPostive != 0)
-            {
-                reputationCountPostive /= AllEmployees.Count();
-            }
-
-            if (reputationCountNegative != 0)
-            {
-                reputationCountNegative /= AllEmployees.Count();
-        }
-
-            var _currentReputation = LegalPerson.Reputation;
             var _reputationObj = ReputationManager.Obj.GetReputation(LegalPerson);
+            _reputationObj?.Relationships.Clear(); // we clear all legal person reputation to remove reputation (silent migration)
 
-            _reputationObj.AdjustRelationship(NegativeReputationGiver, -(reputationCountNegative + (LegalPerson.Reputation - ReputationManager.Obj.GetPositiveReputation(LegalPerson))), null, true);
-            _reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive - ReputationManager.Obj.GetPositiveReputation(LegalPerson), null, true);
+            if (!CompaniesPlugin.Obj.Config.ReputationAveragesEnabled) { return; }
 
-            LegalPerson.MarkDirty();
-            if (_currentReputation != LegalPerson.Reputation)
+            CleanSelfReputation(); // after this we have to wait a bit ...
+
+            Task.Delay(2500).ContinueWith((t) =>
             {
-                SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {_currentReputation.AsReputation()} to {LegalPerson.Reputation.AsReputation()} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.Mail);
-            }
+                float reputationCountPostive = 0;
+                float reputationCountNegative = 0;
+
+                foreach (var user in AllEmployees)
+                {
+                    var positiveReputation = ReputationManager.Obj.GetPositiveReputation(user);
+                    var negativeReputation = ReputationManager.Obj.GetRep(user) - positiveReputation;
+                    var relativeReputation = Math.Max(0, positiveReputation + negativeReputation);
+
+                    reputationCountPostive  += relativeReputation;
+                    reputationCountNegative += negativeReputation;
+
+                    // Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {user.Name}");
+                }
+
+				reputationCountPostive = (reputationCountPostive != 0) ? reputationCountPostive / AllEmployees.Count() : reputationCountPostive;
+                reputationCountNegative = (reputationCountNegative != 0) ? reputationCountNegative / AllEmployees.Count() : reputationCountNegative;
+
+                var _currentReputation = LegalPerson.Reputation;
+
+                _reputationObj.AdjustRelationship(NegativeReputationGiver, reputationCountNegative, null, true);
+                _reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive, null, true);
+
+                // Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+
+                if (_currentReputation != LegalPerson.Reputation)
+                {
+                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(_currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.Mail);
+                }
+            });
         }
         public void UpdateCitizenships()
         {
@@ -802,9 +805,30 @@ namespace Eco.Mods.Companies
             foreach (var user in AllEmployees)
             {
                 UpdateCitizenship(user);
+
             }
         }
 
+        private void CleanSelfReputation()
+        {
+            foreach (var sourceUser in AllEmployees)
+            {
+                foreach (var targetUser in AllEmployees.Where(x => x.Name != sourceUser.Name))
+                {
+                    var givenReputation = ReputationManager.Obj.ReputationGivenTotal(sourceUser, targetUser);
+                    if (givenReputation != 0)
+                    {
+                        ReputationManager.Obj.GetReputation(targetUser)?.AdjustRelationship(sourceUser, -givenReputation, null, true);
+						Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
+						if (ReputationManager.Obj.ReputationGivenToday(sourceUser, targetUser) != 0)
+                        {
+                            ReputationManager.Obj.ForceReplenishReputation(sourceUser); // refunds given rep
+                        }
+                    }
+                }
+            }
+
+        }
         private void UpdateCitizenship(User user)
         {
             if (DirectCitizenship != null)

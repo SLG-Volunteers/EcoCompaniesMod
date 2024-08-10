@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Eco.Server;
 
 
@@ -97,8 +98,11 @@ namespace Eco.Mods.Companies
                     CompanyManager.Obj.InterceptReputationTransfer(transferTransferAction, ref result);
                     if (result.Success) // update both sides if we had success
                     {
-                        Company.GetEmployer(transferTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
-                        Company.GetEmployer(transferTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
+                        Task.Delay(1000).ContinueWith((t) => // wait for ticks
+                        {
+                            Company.GetEmployer(transferTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
+                            Company.GetEmployer(transferTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
+                        });
                     }
                     break;
             }
