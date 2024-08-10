@@ -252,6 +252,57 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
+		public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
+		{			
+			Company company = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
+			if (company != null) // we do not allow anybody to honor the company legal person
+			{
+				lawPostResult.Success = false;
+				NotificationManager.ServerMessageToPlayer(
+					Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
+					reputationTransferData.ReputationSender,
+					NotificationCategory.Reputation,
+					NotificationStyle.InfoBox
+				);
+
+				return;
+			}
+
+			if (!CompaniesPlugin.Obj.Config.CompanyReputationInterceptionEnabled) { return;  }
+
+			// we neither allow the employees to reputate internal
+			company = Company.GetEmployer(reputationTransferData.ReputationSender);
+			if (company != null)
+			{
+				if (company.IsEmployee(reputationTransferData.ReputationReceiver) || company.InviteList.Contains(reputationTransferData.ReputationReceiver))
+				{
+					lawPostResult.Success = false;
+					NotificationManager.ServerMessageToPlayer(
+						Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become a) member of {company.UILink()} and can't receive any reputation from you."),
+						reputationTransferData.ReputationSender,
+						NotificationCategory.Reputation,
+						NotificationStyle.InfoBox
+					);
+
+					return;
+				}
+
+                if (company.InviteList.Contains(reputationTransferData.ReputationSender))
+                {
+					lawPostResult.Success = false;
+					NotificationManager.ServerMessageToPlayer(
+						Localizer.Do($"You are invited to become a member of {company.UILink()} and can't give reputation to anybody in that company."),
+						reputationTransferData.ReputationSender,
+						NotificationCategory.Reputation,
+						NotificationStyle.InfoBox
+					);
+
+					return;
+				}
+				lawPostResult.AddPostEffect(() => company.UpdateLegalPersonReputation());
+			}
+
+		}
 
         public void InterceptStartHomesteadGameAction(StartHomestead startHomestead, ref PostResult lawPostResult)
         {
