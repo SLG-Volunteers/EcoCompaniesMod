@@ -579,10 +579,10 @@ namespace Eco.Mods.Companies
 
                 Registrars.Get<Deed>().Rename(deed, $"{Name} HQ", true);
 
-                Settlement? oldOwnerCitizenship = null;
+                Settlement oldOwnerCitizenship = null;
                 if (deed.HostObject.TryGetObject(out var hostObject))
                 {
-                    oldOwnerCitizenship = hostObject.Creator.DirectCitizenship;
+                    oldOwnerCitizenship = hostObject.Creator?.DirectCitizenship;
                     if (worldObjectCreator == null)
                     {
                         Logger.Error($"Failed to find property WorldObject.Creator via reflection");
