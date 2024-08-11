@@ -843,7 +843,7 @@ namespace Eco.Mods.Companies
                 {
                     // Logger.Debug($"Vehicle '{obj.Name}' from '{obj.Owner.Name}' transfered to '{Name}'");
 
-                    var _sourceName = obj.Creator?.Name ?? obj.Owner?.Name; // WT #43 -> owners where empty on some objects!? migration?
+                    var _sourceName = obj.Creator?.Name ?? obj.Owner?.Name; // WT #43 -> creators where empty on some objects!? migration?
                     var _newName = obj.Name.Replace(_sourceName, LegalPerson.Name);
                     var _newNameParts = _newName.Split(' ');
 
