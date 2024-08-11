@@ -592,6 +592,7 @@ namespace Eco.Mods.Companies
                 if (deed.HostObject.TryGetObject(out var hostObject))
                 {
                     oldOwnerCitizenship = hostObject.Creator?.DirectCitizenship;
+
                     if (worldObjectCreator == null)
                     {
                         Logger.Error($"Failed to find property WorldObject.Creator via reflection");
@@ -609,6 +610,8 @@ namespace Eco.Mods.Companies
                     {
                         worldObjectUpdateOwnerName.Invoke(hostObject, new object[] { OwnerChangeType.Normal });
                     }
+
+                    SetCitizenOf(deed.CachedOwningSettlement ?? oldOwnerCitizenship); // has to be as early as possible
                     deed.UpdateInfluencingSettlement();
 
                     if (hostObject.TryGetComponent<HomesteadFoundationComponent>(out var foundationComponent))
@@ -631,7 +634,7 @@ namespace Eco.Mods.Companies
                 {
                     deed.UpdateInfluencingSettlement();
                 }
-                SetCitizenOf(deed.CachedOwningSettlement ?? oldOwnerCitizenship);
+
                 SendCompanyMessage(Localizer.Do($"{deed.UILink()} is now the new HQ of {this.UILink()}"));
 
                 deed.Residency.AllowPlotsUnclaiming = true;
