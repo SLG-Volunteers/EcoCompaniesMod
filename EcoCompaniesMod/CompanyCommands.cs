@@ -3,6 +3,8 @@ using System.Linq;
 
 namespace Eco.Mods.Companies
 {
+	using Eco.Core.Systems;
+
     using Shared.Localization;
     using Shared.Utils;
 
@@ -89,7 +91,52 @@ namespace Eco.Mods.Companies
             }
         }
 
-        [ChatSubCommand("Company", "Removes an employee from your company.", ChatAuthorizationLevel.User)]
+		[ChatSubCommand("Company", "Rejects an invitation for you to a company.", ChatAuthorizationLevel.User)]
+		public static void Reject(User user, Company targetCompany)
+		{
+            if (targetCompany.InviteList.Remove(user))
+            {
+				targetCompany.SendCompanyMessage(Localizer.Do($"{user.UILink()} has declined the invitation to join the company.")); 
+                user.OkBoxLoc($"You rejected the invitation to {targetCompany.UILink()}");
+			} else
+            {
+				user.OkBoxLoc($"You aren't invited invitation to {targetCompany.UILink()}");
+			}
+		}
+
+		[ChatSubCommand("Company", "Shows your invitelist.", ChatAuthorizationLevel.User)]
+		public static void Invites(User user)
+		{
+			var company = Companies.Company.GetEmployer(user);
+            if (company != null) {
+				user.OkBoxLoc($"You are already bounded to {company.UILink()}...");
+				return;  
+            }
+
+            var sb = new LocStringBuilder();
+
+			foreach (var cCompany in Registrars.Get<Company>().All())
+            {
+                if (cCompany.InviteList.Contains(user))
+                {
+                    if(!sb.ToString().IsSet())
+                    {
+						sb.AppendLineLoc($"Your are invite to these companies:\n\n");
+					}
+
+                    sb.AppendLine(new LocString($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()}"));
+                }
+            }
+
+			if (!sb.ToString().IsSet())
+			{
+				sb.AppendLineLoc($"Your aren't invited any company.") ;
+			}
+
+			user.OkBox(sb.ToLocString());
+		}
+
+		[ChatSubCommand("Company", "Removes an employee from your company.", ChatAuthorizationLevel.User)]
         public static void Fire(User user, User otherUser)
         {
             var company = Companies.Company.GetEmployer(user);
@@ -126,7 +173,6 @@ namespace Eco.Mods.Companies
             if (!currentEmployer.TryLeave(user, out var errorMessage))
             {
                 user.OkBox(errorMessage);
-                return;
             }
         }
 
@@ -288,6 +334,31 @@ namespace Eco.Mods.Companies
             }
         }
 
+        [ChatSubCommand("Company", "Provides admin-only options for company mod management.", ChatAuthorizationLevel.Admin)]
+        public static void Configure(User user, string verb, bool value)
+        {
+
+            switch (verb)
+            {
+                case "propertyLimits":
+                    CompaniesPlugin.Obj.Config.PropertyLimitsEnabled = value;
+                    user.MsgLoc($"propertyLimitsEnabled => {value}");
+                    break;
+                case "reputationAverages":
+                    CompaniesPlugin.Obj.Config.ReputationAveragesEnabled = value;
+                    user.MsgLoc($"reputationTransferEnabled => {value}");
+                    break;
+				case "reputationInterception":
+					CompaniesPlugin.Obj.Config.CompanyReputationInterceptionEnabled = value;
+					user.MsgLoc($"vehicleTransferEnabled => {value}");
+					break;
+				default:
+                    user.MsgLoc($"Valid verbs are 'propertyLimits', 'reputationAverages' or 'reputationInterception'.");
+                    break;
+            }
+
+        }
+
         [ChatSubCommand("Company", "Provides admin-only options for company employee management.", ChatAuthorizationLevel.Admin)]
         public static void Force(User user, Company targetCompany, User targetUser, string verb)
         {
@@ -303,8 +374,15 @@ namespace Eco.Mods.Companies
                     targetCompany.ForceJoin(targetUser);
                     targetCompany.ChangeCeo(targetUser);
                     break;
+                case "demote":
+                    if (!targetCompany.DemoteCeo(targetUser))
+                    {
+                        user.MsgLoc($"Please enter the current CEO of {targetCompany.UILink()} as user!");
+                    };
+
+                    break;
                 default:
-                    user.MsgLoc($"Valid verbs are 'employ', 'fire' or 'promote'.");
+                    user.MsgLoc($"Valid verbs are 'employ', 'fire', 'demote' or 'promote'.");
                     break;
             }
         }

@@ -38,7 +38,8 @@ namespace Eco.Mods.Companies
     using Shared.Items;
     using Shared.IoC;
     using Shared.Utils;
-    using Eco.Core.Plugins;
+    using Eco.Gameplay.Economy.Reputation;
+    using System.Threading.Tasks;
 
     public readonly struct ShareholderHolding
     {
@@ -59,7 +60,10 @@ namespace Eco.Mods.Companies
     {
         private bool inReceiveMoney, inGiveMoney;
 
-        public static Company GetEmployer(User user)
+		public static bool IsInvited(User user, Company company)
+			=> company.InviteList.Contains(user);
+
+		public static Company GetEmployer(User user)
             => Registrars.Get<Company>().Where(x => x.IsEmployee(user)).SingleOrDefault();
 
         public static Company GetFromLegalPerson(User user)
@@ -81,6 +85,9 @@ namespace Eco.Mods.Companies
         [Serialized] public BankAccount BankAccount { get; set; }
 
         [Serialized] public Currency SharesCurrency { get; set; }
+
+        [Serialized, ForceSerializeFullObject] CompanyPositiveReputationGiver PositiveReputationGiver { get; set; }
+        [Serialized, ForceSerializeFullObject] CompanyNegativeReputationGiver NegativeReputationGiver { get; set; }
 
         public Deed HQDeed => LegalPerson?.HomesteadDeed;
 
@@ -139,6 +146,8 @@ namespace Eco.Mods.Companies
 
             // Setup employees
             Employees ??= new ThreadSafeHashSet<User>();
+            PositiveReputationGiver ??= new();
+            NegativeReputationGiver ??= new();
 
             // Setup legal person
             if (LegalPerson == null)
@@ -208,7 +217,7 @@ namespace Eco.Mods.Companies
             InviteList.Add(target);
             OnInviteListChanged();
             MarkPerUserTooltipDirty(target);
-            target.MailLoc($"You have been invited to join {this.UILink()}. Type '/company join {Name}' to accept.", NotificationCategory.Government);
+            target.MailLoc($"You have been invited to join {this.UILink()}. Type '/company join {Name}' to accept or '/company reject {Name}' to reject.", NotificationCategory.Government);
             SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has invited {target.UILink()} to join the company."));
             errorMessage = LocString.Empty;
             return true;
@@ -265,9 +274,10 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(target);
                 SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has fired {target.UILink()} from the company."));
             });
-            pack.TryPerform(null);
-            errorMessage = LocString.Empty;
-            return true;
+
+            var actionMessage = pack.TryPerform(null);
+            errorMessage = actionMessage.Message;
+            return !actionMessage.Message.IsSet();
         }
 
         public bool TryJoin(User user, out LocString errorMessage)
@@ -302,18 +312,17 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(user);
                 SendCompanyMessage(Localizer.Do($"{user.UILink()} has joined the company."));
             });
-            pack.TryPerform(null);
-            errorMessage = LocString.Empty;
-            return true;
+
+            var actionMessage = pack.TryPerform(null);
+            errorMessage = actionMessage.Message;
+            return !actionMessage.Message.IsSet();
         }
 
         public void ForceJoin(User user)
         {
-            var oldEmployer = GetEmployer(user);
-            if (oldEmployer != null)
-            {
-                oldEmployer.ForceLeave(user);
-            }
+            if (AllEmployees.Contains(user)) { return; }
+
+            GetEmployer(user)?.ForceLeave(user);
             if (!Employees.Add(user)) { return; }
             InviteList.Remove(user);
             OnEmployeesChanged();
@@ -347,9 +356,10 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(user);
                 SendCompanyMessage(Localizer.Do($"{user.UILink()} has resigned from the company."));
             });
-            pack.TryPerform(null);
-            errorMessage = LocString.Empty;
-            return true;
+
+            var actionMessage = pack.TryPerform(null);
+            errorMessage = actionMessage.Message;
+            return !actionMessage.Message.IsSet();
         }
 
         public void ForceLeave(User user)
@@ -746,15 +756,79 @@ namespace Eco.Mods.Companies
             }
         }
 
+
+        public void UpdateLegalPersonReputation()
+        {
+            var _reputationObj = ReputationManager.Obj.GetReputation(LegalPerson);
+            _reputationObj?.Relationships.Clear(); // we clear all legal person reputation to remove reputation (silent migration)
+
+            if (!CompaniesPlugin.Obj.Config.ReputationAveragesEnabled) { return; }
+
+            CleanSelfReputation(); // after this we have to wait a bit ...
+
+            Task.Delay(2500).ContinueWith((t) =>
+            {
+                float reputationCountPostive = 0;
+                float reputationCountNegative = 0;
+
+                foreach (var user in AllEmployees)
+                {
+                    var positiveReputation = ReputationManager.Obj.GetPositiveReputation(user);
+                    var negativeReputation = ReputationManager.Obj.GetRep(user) - positiveReputation;
+                    var relativeReputation = Math.Max(0, positiveReputation + negativeReputation);
+
+                    reputationCountPostive  += relativeReputation;
+                    reputationCountNegative += negativeReputation;
+
+                    // Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {user.Name}");
+                }
+
+				reputationCountPostive = (reputationCountPostive != 0) ? reputationCountPostive / AllEmployees.Count() : reputationCountPostive;
+                reputationCountNegative = (reputationCountNegative != 0) ? reputationCountNegative / AllEmployees.Count() : reputationCountNegative;
+
+                var _currentReputation = LegalPerson.Reputation;
+
+                _reputationObj.AdjustRelationship(NegativeReputationGiver, reputationCountNegative, null, true);
+                _reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive, null, true);
+
+                // Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+
+                if (_currentReputation != LegalPerson.Reputation)
+                {
+                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(_currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.Mail);
+                }
+            });
+        }
         public void UpdateCitizenships()
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
             foreach (var user in AllEmployees)
             {
                 UpdateCitizenship(user);
+
             }
         }
 
+        private void CleanSelfReputation()
+        {
+            foreach (var sourceUser in AllEmployees)
+            {
+                foreach (var targetUser in AllEmployees.Where(x => x.Name != sourceUser.Name))
+                {
+                    var givenReputation = ReputationManager.Obj.ReputationGivenTotal(sourceUser, targetUser);
+                    if (givenReputation != 0)
+                    {
+                        ReputationManager.Obj.GetReputation(targetUser)?.AdjustRelationship(sourceUser, -givenReputation, null, true);
+						Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
+						if (ReputationManager.Obj.ReputationGivenToday(sourceUser, targetUser) != 0)
+                        {
+                            ReputationManager.Obj.ForceReplenishReputation(sourceUser); // refunds given rep
+                        }
+                    }
+                }
+            }
+
+        }
         private void UpdateCitizenship(User user)
         {
             if (DirectCitizenship != null)
@@ -798,6 +872,7 @@ namespace Eco.Mods.Companies
 
         private void OnEmployeesChanged()
         {
+            UpdateLegalPersonReputation();
             UpdateAllAuthLists();
             RefreshHQPlotsSize();
             MarkDirty();
@@ -863,7 +938,7 @@ namespace Eco.Mods.Companies
             deed.Accessors.Set(AllEmployees);
             if (deed == HQDeed)
             {
-                deed.Residency.Invitations.InvitationList.Set(AllEmployees);
+                deed.Residency.Invitations.InvitationList.Set(AllEmployees.Where(x => !deed.Residency.Residents.Contains(x)));
                 deed.Residency.AllowPlotsUnclaiming = true;
             }
             deed.MarkDirty();
@@ -886,12 +961,40 @@ namespace Eco.Mods.Companies
             ServiceHolder<ITooltipSubscriptions>.Obj.MarkTooltipPartDirty(nameof(PerUserTooltip), instance: this, user: user);
         }
 
+        public bool DemoteCeo(User currentCeo)
+        {
+            if (currentCeo != Ceo)
+            {
+                return false;
+            }
+
+            SendCompanyMessage(Localizer.Do($"{currentCeo.UILink()} has been removed as CEO."));
+            RemoveCeo();
+
+            return true;
+        }
+
         public void ChangeCeo(User newCeo)
         {
+            RemoveCeo();
+
+            Employees.Remove(newCeo);
             Ceo = newCeo;
-            SendGlobalMessage(Localizer.Do($"{newCeo.UILink()} is now the CEO of {this.UILink()}!"));
+            MarkPerUserTooltipDirty(newCeo);
+
             OnEmployeesChanged();
+            SendGlobalMessage(Localizer.Do($"{newCeo.UILink()} is now the CEO of {this.UILink()}!"));
         }
+
+        private void RemoveCeo()
+        {
+            if (Ceo != null)
+            {
+                Employees.Add(Ceo);
+                MarkPerUserTooltipDirty(Ceo);
+            }
+        }
+
 
         public void SendCompanyMessage(LocString message, NotificationCategory notificationCategory = NotificationCategory.Government, NotificationStyle notificationStyle = NotificationStyle.Chat)
         {

@@ -252,6 +252,59 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
+		public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
+		{			
+			var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
+			if (receiverIsLegalPerson != null) // we do not allow anybody to honor the company legal person
+			{
+				lawPostResult.Success = false;
+				NotificationManager.ServerMessageToPlayer(
+					Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
+					reputationTransferData.ReputationSender,
+					NotificationCategory.Reputation,
+					NotificationStyle.InfoBox
+				);
+
+				return;
+			}
+
+			if (!CompaniesPlugin.Obj.Config.CompanyReputationInterceptionEnabled) { return;  }
+
+			// we do not allow the employees to reputate internal
+			var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
+			if (senderCompany != null)
+			{
+				if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
+				{
+					lawPostResult.Success = false;
+					NotificationManager.ServerMessageToPlayer(
+						Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become) a member of {senderCompany.UILink()} and can't receive any reputation from you."),
+						reputationTransferData.ReputationSender,
+						NotificationCategory.Reputation,
+						NotificationStyle.InfoBox
+					);
+
+					return;
+				}
+			}
+
+			var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
+            if (receiverEmployeer != null)
+            {
+                if (Company.IsInvited(reputationTransferData.ReputationSender, receiverEmployeer))
+                {
+                    lawPostResult.Success = false;
+                    NotificationManager.ServerMessageToPlayer(
+                        Localizer.Do($"You are invited to become a member of {receiverEmployeer.UILink()} and can't give reputation to anyone in that company."),
+                        reputationTransferData.ReputationSender,
+                        NotificationCategory.Reputation,
+                        NotificationStyle.InfoBox
+                    );
+
+                    return;
+                }
+			}
+		}
 
         public void InterceptStartHomesteadGameAction(StartHomestead startHomestead, ref PostResult lawPostResult)
         {

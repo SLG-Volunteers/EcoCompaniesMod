@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Eco.Server;
 
 
@@ -44,6 +45,12 @@ namespace Eco.Mods.Companies
     {
         [LocDescription("If enabled, employees may not have homestead deeds, and the company gets a HQ homestead deed that grows based on employee count.")]
         public bool PropertyLimitsEnabled { get; set; } = true;
+
+        [LocDescription("If enabled, employees can't give reputation to each other - reputation to legal person is denied at any case.")]
+        public bool CompanyReputationInterceptionEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the average repuation from all employees will be given to the legal person.")]
+        public bool ReputationAveragesEnabled { get; set; } = false;
     }
 
     [Serialized]
@@ -86,6 +93,17 @@ namespace Eco.Mods.Companies
                     break;
                 case PlaceOrPickUpObject placeOrPickupObjectAction:
                     CompanyManager.Obj.InterceptPlaceOrPickupObjectGameAction(placeOrPickupObjectAction, ref result);
+                    break;
+                case ReputationTransfer transferTransferAction: // intercepts new reputation actions
+                    CompanyManager.Obj.InterceptReputationTransfer(transferTransferAction, ref result);
+                    if (result.Success) // update both sides if we had success
+                    {
+                        Task.Delay(1000).ContinueWith((t) => // wait for ticks
+                        {
+                            Company.GetEmployer(transferTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
+                            Company.GetEmployer(transferTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
+                        });
+                    }
                     break;
             }
             return result;
