@@ -51,7 +51,10 @@ namespace Eco.Mods.Companies
 
         [LocDescription("If enabled, the average repuation from all employees will be given to the legal person.")]
         public bool ReputationAveragesEnabled { get; set; } = false;
-    }
+
+		[LocDescription("If enabled, the company vehicles will be adopted to the legal person on placement.")]
+		public bool VehicleTransfersEnabled { get; set; } = false;
+	}
 
     [Serialized]
     public class CompaniesData : Singleton<CompaniesData>, IStorage
@@ -165,7 +168,7 @@ namespace Eco.Mods.Companies
 
         internal static void OnPostInitialize() {
             Registrars.Get<Company>().ForEach(company => company.RefreshHQPlotsSize());
-            Logger.Debug($"Set correct plot counts for HQs...");
+            Logger.Info($"Set correct plot counts for HQs...");
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)

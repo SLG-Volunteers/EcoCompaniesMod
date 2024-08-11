@@ -344,8 +344,19 @@ namespace Eco.Mods.Companies
                 {
                     Task.Delay(250).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
                 });
-            }
-        }
+			}
+			else
+			{
+				var company = Company.GetEmployer(placeOrPickUpObject.Citizen);
+				if (company != null)
+				{
+					lawPostResult.AddPostEffect(() =>
+					{
+						Task.Delay(250).ContinueWith(t => company.UpdateAllVehicles());
+					});
+				}
+			}
+		}
 
         public void HandleDeedDestroyed(Deed deed)
         {

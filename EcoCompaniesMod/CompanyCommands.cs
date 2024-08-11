@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
 using System.Linq;
+using Eco.Gameplay.Utils;
 
 namespace Eco.Mods.Companies
 {
@@ -16,6 +17,7 @@ namespace Eco.Mods.Companies
     using Gameplay.Items;
     using Gameplay.Property;
     using Gameplay.UI;
+	using Eco.Gameplay.Systems.NewTooltip;
 
     [ChatCommandHandler]
     public static class CompanyCommands
@@ -23,17 +25,24 @@ namespace Eco.Mods.Companies
         [ChatCommand("Company", ChatAuthorizationLevel.User)]
         public static void Company() { }
 
-        [ChatSubCommand("Company", "Check company mod configuration.", ChatAuthorizationLevel.User)]
-        public static void Config(User user)
+		[ChatSubCommand("Company", "Check company mod configuration.", ChatAuthorizationLevel.User)]
+        public static void Status(User user)
         {
-            if (CompaniesPlugin.Obj.Config.PropertyLimitsEnabled)
-            {
-                user.MsgLoc($"Company property limits mode is ENABLED.");
-            }
-            else
-            {
-                user.MsgLoc($"Company property limits mode is DISABLED.");
-            }
+			var sb = new LocStringBuilder();
+			sb.AppendLineLoc($"<u>Plugin-Status</u>\n");
+			foreach (var configOption in CompaniesPlugin.Obj.PluginConfig.ConfigProperties.ToList())
+			{
+                var statusText = CompaniesPlugin.Obj.Config.GetStringPropertyByName(configOption.Key) == "True" ? "enabled" : "disabled";
+                var statusColor = Color.Red;
+                if (statusText == "enabled") { 
+                    statusColor = Color.Green; 
+                }
+
+				sb.AppendLineLoc($"{Text.Color(Color.Blue, configOption.Key.Replace("Enabled", null))}</b> are <b>{Text.Color(statusColor, statusText)}");
+				sb.AppendLineLoc($"</b>{configOption.Value.Description}\n");
+			}
+
+			user.OkBox(sb.ToLocString());
         }
 
         [ChatSubCommand("Company", "Found a new company.", ChatAuthorizationLevel.User)]
@@ -124,7 +133,7 @@ namespace Eco.Mods.Companies
 						sb.AppendLineLoc($"Your are invite to these companies:\n\n");
 					}
 
-                    sb.AppendLine(new LocString($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()}"));
+                    sb.AppendLineLoc($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()}");
                 }
             }
 
@@ -195,32 +204,36 @@ namespace Eco.Mods.Companies
                 user.OkBoxLoc($"Couldn't set claim mode as you're not currently holding a claim tool");
                 return;
             }
+			currentEmployer.RefreshHQPlotsSize();
 
-            if (currentEmployer.OwnedDeeds.Count() > 1)
-            {
-                if (user.Player == null) { return; }
-                var task = user.Player?.PopupSelectFromOptions(
-                    Localizer.Do($"Choose Company Deed for Claim Tool"), Localizer.DoStr("Deed"), LocString.Empty,
-                    currentEmployer.OwnedDeeds, currentEmployer.HQDeed.SingleItemAsEnumerable(), Shared.UI.MultiSelectorPopUpFlags.None,
-                    Localizer.Do($"This list shows company deeds you own and can claim/unclaim plots for.")
-                );
-                task.ContinueWith(x =>
-                {
-                    claimTool.Deed = x.Result.FirstOrDefault() as Deed;
-                    typeof(ClaimToolBaseItem)
-                        .GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                        .Invoke(claimTool, new object[] { user.Player });
-                    user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
-                });
-                return;
-            }
+			var _deedList = currentEmployer.OwnedDeeds.Where(x => x.IsVehicleDeed == false);
+			if (_deedList.Count() > 1)
+			{
+				if (user.Player == null) { return; }
 
-            claimTool.Deed = currentEmployer.HQDeed;
-            typeof(ClaimToolBaseItem)
-                .GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                .Invoke(claimTool, new object[] { user.Player });
-            user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
-        }
+				var task = user.Player?.PopupSelectFromOptions(
+					Localizer.Do($"Choose Company Deed for Claim Tool"), Localizer.DoStr("Deed"), LocString.Empty,
+					_deedList, currentEmployer.HQDeed.SingleItemAsEnumerable(), Shared.UI.MultiSelectorPopUpFlags.AllowEmptySelect,
+					Localizer.Do($"This list shows company deeds you own and can claim/unclaim plots for.")
+				);
+				task.ContinueWith(x =>
+				{
+					claimTool.Deed = x.Result.FirstOrDefault() as Deed;
+					typeof(ClaimToolBaseItem)
+						.GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+						.Invoke(claimTool, new object[] { user.Player });
+					user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
+				});
+
+				return;
+			}
+
+			claimTool.Deed = currentEmployer.HQDeed;
+			typeof(ClaimToolBaseItem)
+				.GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+				.Invoke(claimTool, new object[] { user.Player });
+			user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
+		}
 
         [ChatSubCommand("Company", "Provides options for company citizenship.", ChatAuthorizationLevel.User)]
         public static void Citizenship(User user, string verb = "", Settlement targetSettlement = null)
@@ -337,7 +350,6 @@ namespace Eco.Mods.Companies
         [ChatSubCommand("Company", "Provides admin-only options for company mod management.", ChatAuthorizationLevel.Admin)]
         public static void Configure(User user, string verb, bool value)
         {
-
             switch (verb)
             {
                 case "propertyLimits":
@@ -352,8 +364,12 @@ namespace Eco.Mods.Companies
 					CompaniesPlugin.Obj.Config.CompanyReputationInterceptionEnabled = value;
 					user.MsgLoc($"vehicleTransferEnabled => {value}");
 					break;
+				case "vehicleTransfers":
+					CompaniesPlugin.Obj.Config.VehicleTransfersEnabled = value;
+					user.MsgLoc($"vehicleTransfer => {value}");
+					break;
 				default:
-                    user.MsgLoc($"Valid verbs are 'propertyLimits', 'reputationAverages' or 'reputationInterception'.");
+                    user.MsgLoc($"Valid verbs are 'propertyLimits', 'reputationAverages',  'reputationInterception' or 'vehicleTransfers'.");
                     break;
             }
 
@@ -387,7 +403,27 @@ namespace Eco.Mods.Companies
             }
         }
 
-        /*[ChatSubCommand("Company", "Edits the company owned deed that you're currently standing in.", ChatAuthorizationLevel.User)]
+		[ChatSubCommand("Company", "Provides admin-only list of all companies and their employees", ChatAuthorizationLevel.Admin)]
+		public static void List(User user)
+		{
+			var sb = new LocStringBuilder().AppendLine();
+			var allCompanies = Registrars.Get<Company>().All();
+
+			foreach (var cCompany in allCompanies)
+			{
+				sb.AppendLineLoc($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()} with HQ at {cCompany.HQDeed.UILink()}");
+			}
+
+			if (!allCompanies.Any())
+			{
+				user.OkBoxLoc($"No companies found...");
+				return;
+			}
+
+			user.Msg(sb.ToLocString());
+		}
+
+		/*[ChatSubCommand("Company", "Edits the company owned deed that you're currently standing in.", ChatAuthorizationLevel.User)]
         public static void EditDeed(User user)
         {
             var company = Companies.Company.GetEmployer(user);

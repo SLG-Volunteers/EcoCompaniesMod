@@ -822,7 +822,7 @@ namespace Eco.Mods.Companies
                     if (givenReputation != 0)
                     {
                         ReputationManager.Obj.GetReputation(targetUser)?.AdjustRelationship(sourceUser, -givenReputation, null, true);
-						Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
+						// Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
 						if (ReputationManager.Obj.ReputationGivenToday(sourceUser, targetUser) != 0)
                         {
                             ReputationManager.Obj.ForceReplenishReputation(sourceUser); // refunds given rep
@@ -830,8 +830,51 @@ namespace Eco.Mods.Companies
                     }
                 }
             }
-
         }
+        
+        public void UpdateAllVehicles()
+        {
+            if (!CompaniesPlugin.Obj.Config.VehicleTransfersEnabled) { return; }
+
+            foreach (var user in AllEmployees)
+            {
+                var userObjects = user.GetAllProperty().Where(x => x.IsVehicleDeed && x.Owner != LegalPerson);
+                foreach (var obj in userObjects)
+                {
+                    // Logger.Debug($"Vehicle '{obj.Name}' from '{obj.Owner.Name}' transfered to '{Name}'");
+
+                    var _sourceName = obj.Creator?.Name ?? obj.Owner?.Name; // WT #43 -> owners where empty on some objects!? migration?
+                    var _newName = obj.Name.Replace(_sourceName, LegalPerson.Name);
+                    var _newNameParts = _newName.Split(' ');
+
+                    if (int.TryParse(_newNameParts.Last(), out int _counterValue))
+                    {
+                        _newName = _newName.Replace(_counterValue.ToString(), $"{obj.Id}");
+                    }
+                    else
+                    {
+                        _newName += $" {obj.Id}";
+                    }
+
+                    Registrars.Get<Deed>().Rename(obj, _newName, true, true);
+
+                    if (LegalPerson.HomesteadDeed != null)
+                    {
+                        obj.Color = LegalPerson.HomesteadDeed.Color;
+                    }
+
+                    obj.ForceChangeOwners(LegalPerson, OwnerChangeType.Normal);
+                    obj.MarkDirty();
+                }
+
+                user.MarkDirty();
+                MarkPerUserTooltipDirty(user);
+            }
+
+            LegalPerson.MarkDirty();
+            MarkPerUserTooltipDirty(LegalPerson);
+        }
+
         private void UpdateCitizenship(User user)
         {
             if (DirectCitizenship != null)
@@ -876,6 +919,7 @@ namespace Eco.Mods.Companies
         private void OnEmployeesChanged()
         {
             UpdateLegalPersonReputation();
+            UpdateAllVehicles();
             UpdateAllAuthLists();
             RefreshHQPlotsSize();
             MarkDirty();
@@ -997,7 +1041,6 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(Ceo);
             }
         }
-
 
         public void SendCompanyMessage(LocString message, NotificationCategory notificationCategory = NotificationCategory.Government, NotificationStyle notificationStyle = NotificationStyle.Chat)
         {
