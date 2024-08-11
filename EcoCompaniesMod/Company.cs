@@ -1016,15 +1016,15 @@ namespace Eco.Mods.Companies
             }
 
             SendCompanyMessage(Localizer.Do($"{currentCeo.UILink()} has been removed as CEO."));
-            RemoveCeo();
+			AddCeoAsEmployee();
+            Ceo = null;
 
             return true;
         }
 
         public void ChangeCeo(User newCeo)
         {
-            RemoveCeo();
-
+            AddCeoAsEmployee();
             Employees.Remove(newCeo);
             Ceo = newCeo;
             MarkPerUserTooltipDirty(newCeo);
@@ -1033,7 +1033,7 @@ namespace Eco.Mods.Companies
             SendGlobalMessage(Localizer.Do($"{newCeo.UILink()} is now the CEO of {this.UILink()}!"));
         }
 
-        private void RemoveCeo()
+        private void AddCeoAsEmployee()
         {
             if (Ceo != null)
             {
