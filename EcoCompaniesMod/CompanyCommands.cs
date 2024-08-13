@@ -208,26 +208,26 @@ namespace Eco.Mods.Companies
 				var task = user.Player?.PopupSelectFromOptions(
 					Localizer.Do($"Choose Company Deed for Claim Tool"), Localizer.DoStr("Deed"), LocString.Empty,
                     deedList, currentEmployer.HQDeed.SingleItemAsEnumerable(), Shared.UI.MultiSelectorPopUpFlags.AllowEmptySelect,
-					Localizer.Do($"This list shows company deeds you own and can claim/unclaim plots for.")
-				);
-				task.ContinueWith(x =>
-				{
-					claimTool.Deed = x.Result.FirstOrDefault() as Deed;
-					typeof(ClaimToolBaseItem)
-						.GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-						.Invoke(claimTool, new object[] { user.Player });
-					user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
-				});
+                    Localizer.Do($"This list shows company deeds you own and can claim/unclaim plots for.")
+                );
+                task.ContinueWith(x =>
+                {
+                    claimTool.Deed = x.Result.FirstOrDefault() as Deed;
+                    typeof(ClaimToolBaseItem)
+                        .GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                        .Invoke(claimTool, new object[] { user.Player });
+                    user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
+                });
 
-				return;
-			}
+                return;
+            }
 
-			claimTool.Deed = currentEmployer.HQDeed;
-			typeof(ClaimToolBaseItem)
-				.GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-				.Invoke(claimTool, new object[] { user.Player });
-			user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
-		}
+            claimTool.Deed = currentEmployer.HQDeed;
+            typeof(ClaimToolBaseItem)
+                .GetMethod("SetClaimMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .Invoke(claimTool, new object[] { user.Player });
+            user.MsgLoc($"Your claim tool has been set to {currentEmployer.HQDeed.UILink()}.");
+        }
 
         [ChatSubCommand("Company", "Provides options for company citizenship.", ChatAuthorizationLevel.User)]
         public static void Citizenship(User user, string verb = "", Settlement targetSettlement = null)
