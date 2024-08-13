@@ -1098,7 +1098,8 @@ namespace Eco.Mods.Companies
         [NewTooltip(CacheAs.Instance | CacheAs.User, 110)]
         public LocString PerUserTooltip(User user)
         {
-            if (user == Ceo) {
+            if (user == Ceo) 
+            {
                 return Localizer.DoStr("You are the CEO of this company.");
             }
             else if (IsEmployee(user))
