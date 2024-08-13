@@ -1,15 +1,16 @@
 ﻿using System;
 using System.Linq;
+using System.Reflection;
+using System.ComponentModel;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Reflection;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Eco.Server;
 
 
 namespace Eco.Mods.Companies
 {
+    using Server;
     using Core.Plugins.Interfaces;
     using Core.Utils;
     using Core.Systems;
@@ -43,18 +44,27 @@ namespace Eco.Mods.Companies
     [Localized]
     public class CompaniesConfig
     {
-        [LocDescription("If enabled, employees may not have homestead deeds, and the company gets a HQ homestead deed that grows based on employee count.")]
+        [LocDescription("If enabled, employees may not have homestead deeds, and the company gets a HQ homestead deed that grows based on employee count."), Category("Property")]
         public bool PropertyLimitsEnabled { get; set; } = true;
 
-        [LocDescription("If enabled, employees can't give reputation to each other - reputation to legal person is denied at any case.")]
-        public bool CompanyReputationInterceptionEnabled { get; set; } = false;
+        [LocDescription("If enabled, the legal person of a company can't receive reputation (this does not include the 'ReputationAverages')."), Category("Reputation")]
+        public bool DenyLegalPersonReputationEnabled { get; set; } = false;
 
-        [LocDescription("If enabled, the average repuation from all employees will be given to the legal person.")]
+        [LocDescription("If enabled, the company members can't give reputation to each other nor the legal person (also counts for invited members)."), Category("Reputation")]
+        public bool DenyCompanyMembersReputationEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the average repuation from all employees will be given to the legal person (in addition to their own reputation if they have any)."), Category("Reputation")]
         public bool ReputationAveragesEnabled { get; set; } = false;
 
-		[LocDescription("If enabled, the company vehicles will be adopted to the legal person on placement.")]
-		public bool VehicleTransfersEnabled { get; set; } = false;
-	}
+        [LocDescription("If enabled, the average repuation from all employees will be filtered by known bonussources (currently only SpeaksWellOfOthersBonus)."), Category("Reputation")]
+        public bool ReputationAveragesBonusEnabled { get; set; } = true;
+
+        [LocDescription("If enabled, the company vehicles will be adopted to the legal person on placement."), Category("Property")]
+        public bool VehicleTransfersEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the company name instead of the legal persons name will be used for naming (shorter)"), Category("Property")]
+        public bool VehicleTransfersUseCompanyNameEnabled { get; set; } = true;
+    }
 
     [Serialized]
     public class CompaniesData : Singleton<CompaniesData>, IStorage
@@ -97,14 +107,14 @@ namespace Eco.Mods.Companies
                 case PlaceOrPickUpObject placeOrPickupObjectAction:
                     CompanyManager.Obj.InterceptPlaceOrPickupObjectGameAction(placeOrPickupObjectAction, ref result);
                     break;
-                case ReputationTransfer transferTransferAction: // intercepts new reputation actions
-                    CompanyManager.Obj.InterceptReputationTransfer(transferTransferAction, ref result);
+                case ReputationTransfer reputationTransferAction: // intercepts new reputation actions
+                    CompanyManager.Obj.InterceptReputationTransfer(reputationTransferAction, ref result);
                     if (result.Success) // update both sides if we had success
                     {
-                        Task.Delay(1000).ContinueWith((t) => // wait for ticks
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
                         {
-                            Company.GetEmployer(transferTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
-                            Company.GetEmployer(transferTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
+                            Company.GetEmployer(reputationTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
+                            Company.GetEmployer(reputationTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
                         });
                     }
                     break;
@@ -121,22 +131,18 @@ namespace Eco.Mods.Companies
     public class CompaniesPlugin : Singleton<CompaniesPlugin>, IModKitPlugin, IConfigurablePlugin, IInitializablePlugin, ISaveablePlugin, IContainsRegistrars
     {
         private bool ignoreBankAccountPermissionsChanged = false;
+        public const int TaskDelay = 250;
 
         public IPluginConfig PluginConfig => config;
 
         private PluginConfig<CompaniesConfig> config;
         public CompaniesConfig Config => config.Config;
 
-        private static readonly Dictionary<Type, GameValueType> gameValueTypeCache = new Dictionary<Type, GameValueType>();
+        private static readonly Dictionary<Type, GameValueType> gameValueTypeCache = new();
 
         public readonly CompanyManager CompanyManager;
 
         [NotNull] private readonly CompaniesData data;
-
-        static CompaniesPlugin()
-        {
-
-        }
 
         public CompaniesPlugin()
         {
@@ -166,9 +172,9 @@ namespace Eco.Mods.Companies
             PropertyManager.DeedOwnerChangedEvent.Add(OnDeedOwnerChanged);
         }
 
-        internal static void OnPostInitialize() {
-            Registrars.Get<Company>().ForEach(company => company.RefreshHQPlotsSize());
-            Logger.Info($"Set correct plot counts for HQs...");
+        internal static void OnPostInitialize()
+        {
+            Registrars.Get<Company>().ForEach(company => company.OnPostInitialized());
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)

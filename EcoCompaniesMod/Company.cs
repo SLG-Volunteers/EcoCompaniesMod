@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Eco.Mods.Companies
 {
@@ -21,6 +22,8 @@ namespace Eco.Mods.Companies
     using Gameplay.Items;
     using Gameplay.Items.InventoryRelated;
     using Gameplay.Economy;
+    using Gameplay.Economy.Reputation;
+    using Gameplay.Economy.Reputation.Internal;
     using Gameplay.GameActions;
     using Gameplay.Aliases;
     using Gameplay.Property;
@@ -38,8 +41,7 @@ namespace Eco.Mods.Companies
     using Shared.Items;
     using Shared.IoC;
     using Shared.Utils;
-    using Eco.Gameplay.Economy.Reputation;
-    using System.Threading.Tasks;
+
 
     public readonly struct ShareholderHolding
     {
@@ -60,10 +62,10 @@ namespace Eco.Mods.Companies
     {
         private bool inReceiveMoney, inGiveMoney;
 
-		public static bool IsInvited(User user, Company company)
-			=> company.InviteList.Contains(user);
+        public static bool IsInvited(User user, Company company)
+            => company.InviteList.Contains(user);
 
-		public static Company GetEmployer(User user)
+        public static Company GetEmployer(User user)
             => Registrars.Get<Company>().Where(x => x.IsEmployee(user)).SingleOrDefault();
 
         public static Company GetFromLegalPerson(User user)
@@ -186,10 +188,9 @@ namespace Eco.Mods.Companies
             }
         }
 
-        [OnDeserialized]
-        private void OnDeserialized()
+        public void OnPostInitialized()
         {
-
+            RefreshHQPlotsSize();
         }
 
         public bool DoesOwnBankAccount(BankAccount bankAccount)
@@ -762,70 +763,83 @@ namespace Eco.Mods.Companies
 
         public void UpdateLegalPersonReputation()
         {
-            var _reputationObj = ReputationManager.Obj.GetReputation(LegalPerson);
-            _reputationObj?.Relationships.Clear(); // we clear all legal person reputation to remove reputation (silent migration)
-
             if (!CompaniesPlugin.Obj.Config.ReputationAveragesEnabled) { return; }
 
-            CleanSelfReputation(); // after this we have to wait a bit ...
+            CleanSelfReputation();
 
-            Task.Delay(2500).ContinueWith((t) =>
+            var reputationObj = ReputationManager.Obj.GetReputation(LegalPerson);
+
+            reputationObj?.Relationships
+                .Where(x => x.Key is CompanyNegativeReputationGiver || x.Key is CompanyPositiveReputationGiver)
+                .ForEach(x => reputationObj.AdjustRelationship(x.Key, -x.Value.Value, null, true));
+
+            // at this point we have to wait a bit to let the reputationmanager recache...
+            Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
             {
-                float reputationCountPostive = 0;
+                var   currentReputation       = LegalPerson.Reputation;
+                float reputationCountPostive  =  0;
                 float reputationCountNegative = 0;
 
                 foreach (var user in AllEmployees)
                 {
-                    var positiveReputation = ReputationManager.Obj.GetPositiveReputation(user);
-                    var negativeReputation = ReputationManager.Obj.GetRep(user) - positiveReputation;
-                    var relativeReputation = Math.Max(0, positiveReputation + negativeReputation);
+                    var ignoredReputation = 0f;
+                    if(CompaniesPlugin.Obj.Config.ReputationAveragesBonusEnabled) // we have to remove that bonus if the config is set so...
+                    {
+                        ignoredReputation = ReputationManager.Obj.GetReputation(user)?.Relationships?.FirstOrNull(x => x.Key is SpeaksWellOfOthersReputationGiver)?.Value.Value ?? 0f;
+                    }
+
+                    var positiveReputation   = ReputationManager.Obj.GetPositiveReputation(user);
+                    var negativeReputation   = ReputationManager.Obj.GetRep(user) - positiveReputation;
+                    var relativeReputation   = (positiveReputation - ignoredReputation) + negativeReputation;
 
                     reputationCountPostive  += relativeReputation;
                     reputationCountNegative += negativeReputation;
 
-                    // Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {user.Name}");
+                    //Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {ignoredReputation} | {user.Name}");
                 }
 
-				reputationCountPostive = (reputationCountPostive != 0) ? reputationCountPostive / AllEmployees.Count() : reputationCountPostive;
-                reputationCountNegative = (reputationCountNegative != 0) ? reputationCountNegative / AllEmployees.Count() : reputationCountNegative;
+                //Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
 
-                var _currentReputation = LegalPerson.Reputation;
+                reputationCountPostive  = (reputationCountPostive != 0) ? reputationCountPostive / AllEmployees.Count() : reputationCountPostive;
+                reputationCountNegative = (reputationCountPostive != 0) ? reputationCountNegative / AllEmployees.Count() : reputationCountNegative;
 
-                _reputationObj.AdjustRelationship(NegativeReputationGiver, reputationCountNegative, null, true);
-                _reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive, null, true);
+                reputationObj.AdjustRelationship(NegativeReputationGiver, reputationCountNegative, null, true);
+                reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive, null, true);
 
-                // Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+                //Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
 
-                if (_currentReputation != LegalPerson.Reputation)
+                if (currentReputation != LegalPerson.Reputation)
                 {
-                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(_currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.Mail);
+                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.InfoBox);
                 }
             });
         }
         public void UpdateCitizenships()
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
+
             foreach (var user in AllEmployees)
             {
                 UpdateCitizenship(user);
-
             }
         }
 
         private void CleanSelfReputation()
         {
+            if(!CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) { return; } // we don't remove self reputation if this option is on (company members can give reputation to each other)
+
             foreach (var sourceUser in AllEmployees)
             {
-                foreach (var targetUser in AllEmployees.Where(x => x.Name != sourceUser.Name))
+                foreach (var targetUser in AllEmployees.Except(sourceUser.SingleItemAsEnumerable()))
                 {
                     var givenReputation = ReputationManager.Obj.ReputationGivenTotal(sourceUser, targetUser);
                     if (givenReputation != 0)
                     {
                         ReputationManager.Obj.GetReputation(targetUser)?.AdjustRelationship(sourceUser, -givenReputation, null, true);
-						// Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
-						if (ReputationManager.Obj.ReputationGivenToday(sourceUser, targetUser) != 0)
+                        // Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
+                        if (ReputationManager.Obj.ReputationGivenToday(sourceUser, targetUser) != 0)
                         {
-                            ReputationManager.Obj.ForceReplenishReputation(sourceUser); // refunds given rep
+                            ReputationManager.Obj.ForceReplenishReputation(sourceUser); // refunds given rep to that user (for ui to reflect the "take back")
                         }
                     }
                 }
@@ -836,29 +850,23 @@ namespace Eco.Mods.Companies
         {
             if (!CompaniesPlugin.Obj.Config.VehicleTransfersEnabled) { return; }
 
+            var nameReplacement = CompaniesPlugin.Obj.Config.VehicleTransfersUseCompanyNameEnabled ? Name : LegalPerson.Name;
+
             foreach (var user in AllEmployees)
             {
-                var userObjects = user.GetAllProperty().Where(x => x.IsVehicleDeed && x.Owner != LegalPerson);
-                foreach (var obj in userObjects)
+                foreach (var obj in user.GetAllProperty().Where(x => x.IsVehicleDeed && x.Owner != LegalPerson))
                 {
+                    var newName       = obj.Name.Replace(obj.Creator?.Name ?? obj.Owner?.Name, nameReplacement); // WT Playtest -> creators where empty on some objects!? migration?
+                    var newNameParts  = newName.Split(' ');
+
                     // Logger.Debug($"Vehicle '{obj.Name}' from '{obj.Owner.Name}' transfered to '{Name}'");
+                    
+                    Registrars.Get<Deed>().Rename(obj,
+                                                  int.TryParse(newNameParts.Last(), out int counterValue) ? newName.Replace(counterValue.ToString(), $"{obj.Id}") : $"{newName} {obj.Id}",
+                                                  true,
+                                                  true);
 
-                    var _sourceName = obj.Creator?.Name ?? obj.Owner?.Name; // WT #43 -> creators where empty on some objects!? migration?
-                    var _newName = obj.Name.Replace(_sourceName, LegalPerson.Name);
-                    var _newNameParts = _newName.Split(' ');
-
-                    if (int.TryParse(_newNameParts.Last(), out int _counterValue))
-                    {
-                        _newName = _newName.Replace(_counterValue.ToString(), $"{obj.Id}");
-                    }
-                    else
-                    {
-                        _newName += $" {obj.Id}";
-                    }
-
-                    Registrars.Get<Deed>().Rename(obj, _newName, true, true);
-
-                    if (LegalPerson.HomesteadDeed != null)
+                    if(LegalPerson.HomesteadDeed != null)
                     {
                         obj.Color = LegalPerson.HomesteadDeed.Color;
                     }
@@ -893,10 +901,7 @@ namespace Eco.Mods.Companies
             else
             {
                 // Company has no citizenship, ensure user inherits it
-                if (user.DirectCitizenship != null)
-                {
-                    user.DirectCitizenship.Citizenship.DirectCitizenRoster.Leave(user, true);
-                }
+                user.DirectCitizenship?.Citizenship.DirectCitizenRoster.Leave(user, true);
             }
         }
 
@@ -1016,7 +1021,7 @@ namespace Eco.Mods.Companies
             }
 
             SendCompanyMessage(Localizer.Do($"{currentCeo.UILink()} has been removed as CEO."));
-			AddCeoAsEmployee();
+            AddCeoAsEmployee();
             Ceo = null;
 
             return true;

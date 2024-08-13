@@ -61,7 +61,7 @@ namespace Eco.Mods.Companies
 
         public readonly struct CreateAttempt : IEquatable<CreateAttempt>
         {
-            public static readonly CreateAttempt Invalid = new CreateAttempt();
+            public static readonly CreateAttempt Invalid = new();
 
             public readonly User CEO;
             public readonly string CompanyName;
@@ -252,50 +252,16 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
-		public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
-		{			
-			var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
-			if (receiverIsLegalPerson != null) // we do not allow anybody to honor the company legal person
-			{
-				lawPostResult.Success = false;
-				NotificationManager.ServerMessageToPlayer(
-					Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
-					reputationTransferData.ReputationSender,
-					NotificationCategory.Reputation,
-					NotificationStyle.InfoBox
-				);
-
-				return;
-			}
-
-			if (!CompaniesPlugin.Obj.Config.CompanyReputationInterceptionEnabled) { return;  }
-
-			// we do not allow the employees to reputate internal
-			var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
-			if (senderCompany != null)
-			{
-				if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
-				{
-					lawPostResult.Success = false;
-					NotificationManager.ServerMessageToPlayer(
-						Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become) a member of {senderCompany.UILink()} and can't receive any reputation from you."),
-						reputationTransferData.ReputationSender,
-						NotificationCategory.Reputation,
-						NotificationStyle.InfoBox
-					);
-
-					return;
-				}
-			}
-
-			var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
-            if (receiverEmployeer != null)
+        public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
+        {
+            if (CompaniesPlugin.Obj.Config.DenyLegalPersonReputationEnabled) // we do not allow anybody to honor the company legal person if settings are matching
             {
-                if (Company.IsInvited(reputationTransferData.ReputationSender, receiverEmployeer))
+                var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
+                if (receiverIsLegalPerson != null)
                 {
                     lawPostResult.Success = false;
                     NotificationManager.ServerMessageToPlayer(
-                        Localizer.Do($"You are invited to become a member of {receiverEmployeer.UILink()} and can't give reputation to anyone in that company."),
+                        Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
                         reputationTransferData.ReputationSender,
                         NotificationCategory.Reputation,
                         NotificationStyle.InfoBox
@@ -303,8 +269,46 @@ namespace Eco.Mods.Companies
 
                     return;
                 }
-			}
-		}
+            }
+
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) // we do not allow the employees to reputate internal, if the settings match
+            {
+                var senderCompany     = Company.GetEmployer(reputationTransferData.ReputationSender);
+                var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
+                
+                if (senderCompany != null)
+                {
+                    if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
+                    {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become) a member of {senderCompany.UILink()} and can't receive any reputation from you."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
+
+                        return;
+                    }
+                }
+
+                if (receiverEmployeer != null)
+                {
+                    if (Company.IsInvited(reputationTransferData.ReputationSender, receiverEmployeer))
+                    {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"You are invited to become a member of {receiverEmployeer.UILink()} and can't give reputation to anyone in your company."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
+
+                        return;
+                    }
+                }
+            }
+        }
 
         public void InterceptStartHomesteadGameAction(StartHomestead startHomestead, ref PostResult lawPostResult)
         {
@@ -342,30 +346,26 @@ namespace Eco.Mods.Companies
             {
                 lawPostResult.AddPostEffect(() =>
                 {
-                    Task.Delay(250).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
+                    Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
                 });
-			}
-			else
-			{
-				var company = Company.GetEmployer(placeOrPickUpObject.Citizen);
-				if (company != null)
-				{
-					lawPostResult.AddPostEffect(() =>
-					{
-						Task.Delay(250).ContinueWith(t => company.UpdateAllVehicles());
-					});
-				}
-			}
-		}
+            }
+            else
+            {
+                var company = Company.GetEmployer(placeOrPickUpObject.Citizen);
+                if (company != null)
+                {
+                    lawPostResult.AddPostEffect(() =>
+                    {
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.UpdateAllVehicles());
+                    });
+                }
+            }
+        }
 
         public void HandleDeedDestroyed(Deed deed)
         {
             if (deed.Owner is not User owner) { return; }
-            var company = Company.GetFromLegalPerson(owner);
-            if (company != null)
-            {
-                company.OnNoLongerOwnerOfProperty(deed);
-            }
+            Company.GetFromLegalPerson(owner)?.OnNoLongerOwnerOfProperty(deed);
         }
 
         public void HandleDeedOwnerChanged(Deed deed)
@@ -410,7 +410,7 @@ namespace Eco.Mods.Companies
 
         private void ClaimHomesteadAsHQAsyncRetry(User employee, Company employer)
         {
-            Task.Delay(250).ContinueWith((t) => ClaimHomesteadAsHQ(employee, employer, false));
+            Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => ClaimHomesteadAsHQ(employee, employer, false));
         }
 
         private void ClaimHomesteadAsHQ(User employee, Deed deed, Company employer)

@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Eco.Mods.Companies
+﻿namespace Eco.Mods.Companies
 {
     using Core.Controller;
     using Core.Utils;
@@ -11,7 +9,6 @@ namespace Eco.Mods.Companies
     using Shared.Utils;
 
     using Gameplay.Civics.GameValues;
-    using Gameplay.Economy;
     using Gameplay.Systems.TextLinks;
     using Gameplay.Players;
     using Gameplay.Aliases;
