@@ -202,11 +202,11 @@ namespace Eco.Mods.Companies
 
             var deedList = currentEmployer.OwnedDeeds.Where(x => x.IsVehicleDeed == false);
             if (deedList.Count() > 1)
-			{
-				if (user.Player == null) { return; }
+            {
+                if (user.Player == null) { return; }
 
-				var task = user.Player?.PopupSelectFromOptions(
-					Localizer.Do($"Choose Company Deed for Claim Tool"), Localizer.DoStr("Deed"), LocString.Empty,
+                var task = user.Player?.PopupSelectFromOptions(
+                    Localizer.Do($"Choose Company Deed for Claim Tool"), Localizer.DoStr("Deed"), LocString.Empty,
                     deedList, currentEmployer.HQDeed.SingleItemAsEnumerable(), Shared.UI.MultiSelectorPopUpFlags.AllowEmptySelect,
                     Localizer.Do($"This list shows company deeds you own and can claim/unclaim plots for.")
                 );
