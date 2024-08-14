@@ -365,6 +365,25 @@ namespace Eco.Mods.Companies
         {
             switch (verb)
             {
+                case "invite":
+                    if(!targetCompany.TryInvite(targetCompany?.Ceo, targetUser, out var inviteError))
+                    {
+                        user.MsgLoc($"Failed to uninvite {targetUser.UILinkNullSafe()} to {targetCompany.UILinkNullSafe()}:");
+                        user.MsgLoc($"{Text.Color(Color.Red, inviteError)}");
+                        return;
+                    }
+
+                    user.MsgLoc($"{targetUser.UILink()} was invited to join {targetCompany.UILink()}.");
+                    break;
+                case "uninvite":
+                    if(!targetCompany.TryUninvite(targetCompany?.Ceo, targetUser, out var uninviteError))
+                    {
+                        user.MsgLoc($"Failed to uninvite {targetUser.UILinkNullSafe()} to {targetCompany.UILinkNullSafe()}:");
+                        user.MsgLoc($"{Text.Color(Color.Red, uninviteError)}");
+                        return;
+                    }
+                    user.MsgLoc($"{targetUser.UILink()} was uninvited to join {targetCompany.UILink()}.");
+                    break;
                 case "employ":
                     targetCompany.ForceJoin(targetUser);
                     break;
@@ -376,6 +395,8 @@ namespace Eco.Mods.Companies
                     targetCompany.ChangeCeo(targetUser);
                     break;
                 case "demote":
+                    if (user.GetChatAuthLevel() != ChatAuthorizationLevel.DevTier) { return; }
+
                     if (!targetCompany.DemoteCeo(targetUser))
                     {
                         user.MsgLoc($"Please enter the current CEO of {targetCompany.UILink()} as user!");
@@ -383,7 +404,7 @@ namespace Eco.Mods.Companies
 
                     break;
                 default:
-                    user.MsgLoc($"Valid verbs are 'employ', 'fire', 'demote' or 'promote'.");
+                    user.MsgLoc($"Valid verbs are 'employ', 'fire', 'demote','promote', 'invite' or 'uninvite'.");
                     break;
             }
         }

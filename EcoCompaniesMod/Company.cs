@@ -218,7 +218,13 @@ namespace Eco.Mods.Companies
             InviteList.Add(target);
             OnInviteListChanged();
             MarkPerUserTooltipDirty(target);
-            target.MailLoc($"You have been invited to join {this.UILink()}. Type '/company join {Name}' to accept or '/company reject {Name}' to reject.", NotificationCategory.Government);
+
+            var acceptLink =Text.CopyToClipBoard(Text.Color(Color.Green, $"To accept use"), $"/company join {Name}", $"/company join {Name}");
+            var rejectLink = Text.CopyToClipBoard(Text.Color(Color.Red, $"To reject use"), $"/company join {Name}", $"/company join {Name}");
+            var headerText = Text.Header($"You have been invited to join {this.UILink()}");
+
+			target.MailLoc($"{headerText}\n\n{acceptLink}\n{rejectLink}", NotificationCategory.Government);
+
             SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has invited {target.UILink()} to join the company."));
             errorMessage = LocString.Empty;
             return true;
@@ -1091,8 +1097,10 @@ namespace Eco.Mods.Companies
             sb.AppendLine(TextLoc.HeaderLoc($"Shareholders:"));
             sb.AppendLine(Shareholders.Any() ? Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Citizenship: "));
-            sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None."));
-            return sb.ToLocString();
+            sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None.")); 
+            sb.Append(TextLoc.HeaderLoc($"Company Legal Person: "));
+			sb.AppendLine(LegalPerson != null ? LegalPerson.UILink() : Localizer.DoStr("None."));
+			return sb.ToLocString();
         }
 
         [NewTooltip(CacheAs.Instance | CacheAs.User, 110)]
