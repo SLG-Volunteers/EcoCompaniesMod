@@ -271,10 +271,23 @@ namespace Eco.Mods.Companies
                 }
             }
 
+			var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
+			if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && receiverEmployeer != null)
+            {
+				lawPostResult.Success = false;
+                NotificationManager.ServerMessageToPlayer(
+                    Localizer.Do($"You can't give reputation to a member of a company."),
+                    reputationTransferData.ReputationSender,
+                    NotificationCategory.Reputation,
+                    NotificationStyle.InfoBox
+                );
+
+				return;
+			}
+
             if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) // we do not allow the employees to reputate internal, if the settings match
             {
                 var senderCompany     = Company.GetEmployer(reputationTransferData.ReputationSender);
-                var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
                 
                 if (senderCompany != null)
                 {
