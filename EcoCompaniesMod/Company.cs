@@ -871,12 +871,12 @@ namespace Eco.Mods.Companies
             }
         }
         
-        public void TakeClaim(User claimIssuser, Vector2i claimLocation)
+        public void TakeClaim(User claimIssuer, Vector2i claimLocation)
         {
             var deed = PropertyManager.GetDeedWorldPos(claimLocation);
             if (deed != null && !deed.IsVehicleDeed && !deed.IsHomesteadDeed)
             {
-                var task = claimIssuser.Player?.InputString(new LocString($"Please give your new deed a name:"), new LocString($"{deed.Name}"));
+                var task = claimIssuer.Player?.InputString(new LocString($"Please give your new deed a name:"), new LocString($"{deed.Name}"));
                 task.ContinueWith(x =>
                 {
                     if (!x.Result.IsEmpty()) { deed.Name = x.Result; }

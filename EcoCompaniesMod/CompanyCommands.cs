@@ -180,7 +180,7 @@ namespace Eco.Mods.Companies
             }
         }
 
-        [ChatSubCommand("Company", "Edit the property of a deed secondary deed.", ChatAuthorizationLevel.User)]
+        [ChatSubCommand("Company", "Edit the rent of a deed.", ChatAuthorizationLevel.User)]
         public static void Rent(User user)
         {
             var currentEmployer = Companies.Company.GetEmployer(user);
