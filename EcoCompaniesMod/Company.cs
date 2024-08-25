@@ -1073,9 +1073,10 @@ namespace Eco.Mods.Companies
 
         public void ChangeCeo(User newCeo)
         {
-            AddCeoAsEmployee();
-            Employees.Remove(newCeo);
-            Ceo = newCeo;
+            if (Employees.Contains(newCeo)) { Employees.Remove(newCeo); }
+			AddCeoAsEmployee();
+
+			Ceo = newCeo;
             MarkPerUserTooltipDirty(newCeo);
 
             OnEmployeesChanged();
