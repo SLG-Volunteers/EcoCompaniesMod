@@ -357,9 +357,34 @@ namespace Eco.Mods.Companies
             // After any pickup, try and fixup homestead claim items
             if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PickingUpObject)
             {
+				// workaround V11 bug ECO-36228 which let's empty deeds behind... | save the deed before it's gone
+				var deed = PropertyManager.GetDeedWorldPos(placeOrPickUpObject.ActionLocation.XZ);
+
                 lawPostResult.AddPostEffect(() =>
                 {
                     Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
+
+					// workaround V11 bug ECO-36228 which let's empty deeds behind... | remove the deed after a short delay to let the game catch up
+					if (deed != null && (placeOrPickUpObject.ItemUsed is SettlementClaimStakeItem settlementClaimStake || placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem homeClaimStake))
+                    {
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
+                        {
+                            try
+                            {
+                                if (deed.OwnedObjects?.Any() != true)
+								{
+                                    // Logger.Debug($"Fixed up empty deed '{deed.Id}' left due to ECO-36228");
+                                    deed.ForceChangeOwners(placeOrPickUpObject.Citizen, OwnerChangeType.CivicUpdate);
+									Registrars.Get<Deed>().Remove(deed);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Debug($"Could not fix '{deed.Id}' left due to ECO-36228:");
+                                Logger.Debug(ex.Message);
+                            }
+                        });
+                    }
                 });
             }
             else
@@ -369,7 +394,8 @@ namespace Eco.Mods.Companies
                 {
                     lawPostResult.AddPostEffect(() =>
                     {
-                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.UpdateAllVehicles());
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.UpdateAllVehicles()); // take over vehicle if we got some new
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
                     });
                 }
             }

@@ -41,7 +41,7 @@ namespace Eco.Mods.Companies
     using Shared.Items;
     using Shared.IoC;
     using Shared.Utils;
-
+    using Shared.Math;
 
     public readonly struct ShareholderHolding
     {
@@ -60,7 +60,7 @@ namespace Eco.Mods.Companies
     [Serialized, ForceCreateView]
     public class Company : SimpleEntry, IHasIcon
     {
-        private bool inReceiveMoney, inGiveMoney;
+        private bool inReceiveMoney, inGiveMoney, ignoreOwnerChanged;
 
         public static bool IsInvited(User user, Company company)
             => company.InviteList.Contains(user);
@@ -529,9 +529,11 @@ namespace Eco.Mods.Companies
 
         private void OnDeedOwnerChanged(object obj, MemberChangedBeforeAfterEventArgs ev)
         {
+            if (ignoreOwnerChanged) { return; }
             if (obj is not Deed deed) { return; }
             if (ev.Before is not IAlias oldOwner) { return; }
             if (ev.After is not IAlias newOwner) { return; }
+
             Logger.Debug($"Deed {deed} (for {Name}) changed owner from {oldOwner.Name} to {newOwner.Name}");
             if (oldOwner.ContainsUser(LegalPerson) && !newOwner.ContainsUser(LegalPerson))
             {
@@ -584,8 +586,22 @@ namespace Eco.Mods.Companies
         private static readonly MethodInfo worldObjectUpdateOwnerName = typeof(WorldObject).GetMethod("UpdateOwnerName", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo homesteadFoundationComponentCitizenshipUpdated = typeof(HomesteadFoundationComponent).GetMethod("CitizenshipUpdated", BindingFlags.NonPublic | BindingFlags.Instance);
 
+        public void EditRent(Deed deed, User user)
+        {
+            ignoreOwnerChanged = true; // Don't go through company events for this - we will give it right back after we open the UI.
+
+            var currentOwner = deed.Owner;
+            deed.ForceChangeOwners(user, OwnerChangeType.AdminCommand);
+            deed.Rent.EditRent(user.Player);
+            deed.ForceChangeOwners(currentOwner, OwnerChangeType.AdminCommand);
+
+            ignoreOwnerChanged = false;  // Okay, we're done.
+        }
+
         public void OnNowOwnerOfProperty(Deed deed)
         {
+            if(ignoreOwnerChanged) return;
+
             Logger.Debug($"'{Name}' is now owner of property '{deed.Name}'");
             this.WatchProp(deed, nameof(Deed.Owner), OnDeedOwnerChanged);
             if (deed.IsHomesteadDeed)
@@ -656,7 +672,10 @@ namespace Eco.Mods.Companies
 
         public void OnNoLongerOwnerOfProperty(Deed deed)
         {
+            if (ignoreOwnerChanged) return;
+
             Logger.Debug($"'{Name}' is no longer owner of property '{deed.Name}'");
+
             this.Unwatch(deed);
             if (deed == HQDeed)
             {
@@ -852,6 +871,25 @@ namespace Eco.Mods.Companies
             }
         }
         
+        public void TakeClaim(User claimIssuser, Vector2i claimLocation)
+        {
+            var deed = PropertyManager.GetDeedWorldPos(claimLocation);
+            if (deed != null && !deed.IsVehicleDeed && !deed.IsHomesteadDeed)
+            {
+                var task = claimIssuser.Player?.InputString(new LocString($"Please give your new deed a name:"), new LocString($"{deed.Name}"));
+                task.ContinueWith(x =>
+                {
+                    if (!x.Result.IsEmpty()) { deed.Name = x.Result; }
+
+                    deed.ForceChangeOwners(LegalPerson, OwnerChangeType.Normal); // we don't supress with ignoreOwnerChange here as we want the company to know about the deed
+                    deed.MarkDirty();
+
+                    UpdateAllAuthLists();
+                    MarkDirty();
+                });
+            }
+        }
+
         public void UpdateAllVehicles()
         {
             if (!CompaniesPlugin.Obj.Config.VehicleTransfersEnabled) { return; }

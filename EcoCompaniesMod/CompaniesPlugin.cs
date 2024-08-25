@@ -62,7 +62,7 @@ namespace Eco.Mods.Companies
         [LocDescription("If enabled, the average repuation from all employees will be filtered by known bonussources (currently only SpeaksWellOfOthersBonus)."), Category("Reputation")]
         public bool ReputationAveragesBonusEnabled { get; set; } = true;
 
-        [LocDescription("If enabled, the company vehicles will be adopted to the legal person on placement."), Category("Property")]
+        [LocDescription("If enabled, the company vehicles will be adopted to the legal person on placement (need PropertyLimitesEnabled to be also enabled)."), Category("Property")]
         public bool VehicleTransfersEnabled { get; set; } = false;
 
         [LocDescription("If enabled, the company name instead of the legal persons name will be used for naming (shorter)"), Category("Property")]

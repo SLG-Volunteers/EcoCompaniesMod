@@ -180,6 +180,34 @@ namespace Eco.Mods.Companies
             }
         }
 
+        [ChatSubCommand("Company", "Edit the property of a deed secondary deed.", ChatAuthorizationLevel.User)]
+        public static void Rent(User user)
+        {
+            var currentEmployer = Companies.Company.GetEmployer(user);
+            if (currentEmployer == null)
+            {
+                user.OkBoxLoc($"Couldn't edit any rent as you're not currently employed");
+                return;
+            }
+
+            if (user.Player == null) { return; }
+
+            var deedList = currentEmployer.OwnedDeeds.Where(x => !x.IsVehicleDeed && x != currentEmployer.HQDeed);
+            if (deedList.Count() > 0)
+            {
+                var task = user.Player?.PopupSelectFromOptions(
+                    Localizer.Do($"Choose Company Deed to edit rent"), Localizer.DoStr("Deed"), LocString.Empty,
+                    deedList, null, Shared.UI.MultiSelectorPopUpFlags.None,
+                    Localizer.Do($"This list shows company deeds you use for renting.")
+                );
+
+                task.ContinueWith(x => currentEmployer.EditRent(x.Result.FirstOrDefault() as Deed, user));
+                return;
+            }
+
+            user.OkBoxLoc($"{currentEmployer.UILinkNullSafe()} does not own any deeds that can be rented and {currentEmployer.HQDeed.UILinkNullSafe()} can't be used for renting as it is the HQ.");
+        }
+
         [ChatSubCommand("Company", "Sets the currently held claim tool to the company HQ deed.", ChatAuthorizationLevel.User)]
         public static void Claim(User user)
         {
@@ -200,14 +228,14 @@ namespace Eco.Mods.Companies
                 return;
             }
 
-            var deedList = currentEmployer.OwnedDeeds.Where(x => x.IsVehicleDeed == false);
+            var deedList = currentEmployer.OwnedDeeds.Where(x => !x.IsVehicleDeed);
             if (deedList.Count() > 1)
             {
                 if (user.Player == null) { return; }
 
                 var task = user.Player?.PopupSelectFromOptions(
                     Localizer.Do($"Choose Company Deed for Claim Tool"), Localizer.DoStr("Deed"), LocString.Empty,
-                    deedList, currentEmployer.HQDeed.SingleItemAsEnumerable(), Shared.UI.MultiSelectorPopUpFlags.AllowEmptySelect,
+                    deedList, null, Shared.UI.MultiSelectorPopUpFlags.AllowEmptySelect,
                     Localizer.Do($"This list shows company deeds you own and can claim/unclaim plots for.")
                 );
                 task.ContinueWith(x =>
