@@ -37,7 +37,7 @@ namespace Eco.Mods.Companies
                 sb.AppendLineLoc($"{configOption.Value.Description}\n");
             }
 
-            user.Player?.OpenInfoPanel($"Plugin-Status", sb.ToString(), "pluginSettingsInfo");
+            user.Player?.OpenInfoPanel($"Companies Mod Status", sb.ToString(), "pluginSettingsInfo");
         }
 
         [ChatSubCommand("Company", "Found a new company.", ChatAuthorizationLevel.User)]

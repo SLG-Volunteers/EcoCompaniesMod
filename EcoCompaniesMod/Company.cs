@@ -223,7 +223,7 @@ namespace Eco.Mods.Companies
             var rejectLink = Text.CopyToClipBoard(Text.Color(Color.Red, $"To reject use"), $"/company reject {Name}", $"/company join {Name}");
             var headerText = Text.Header($"You have been invited to join {this.UILink()}");
 
-			target.MailLoc($"{headerText}\n\n{acceptLink}\n{rejectLink}", NotificationCategory.Government);
+            target.MailLoc($"{headerText}\n\n{acceptLink}\n{rejectLink}", NotificationCategory.Government);
 
             SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has invited {target.UILink()} to join the company."));
             errorMessage = LocString.Empty;
@@ -588,14 +588,18 @@ namespace Eco.Mods.Companies
 
         public void EditRent(Deed deed, User user)
         {
-            ignoreOwnerChanged = true; // Don't go through company events for this - we will give it right back after we open the UI.
-
-            var currentOwner = deed.Owner;
-            deed.ForceChangeOwners(user, OwnerChangeType.AdminCommand);
-            deed.Rent.EditRent(user.Player);
-            deed.ForceChangeOwners(currentOwner, OwnerChangeType.AdminCommand);
-
-            ignoreOwnerChanged = false;  // Okay, we're done.
+            try
+            {
+                ignoreOwnerChanged = true;  // Don't go through company events for this - we will give it right back after we open the UI.
+                var currentOwner = deed.Owner;
+                deed.ForceChangeOwners(user, OwnerChangeType.AdminCommand);
+                deed.Rent.EditRent(user.Player);
+                deed.ForceChangeOwners(currentOwner, OwnerChangeType.AdminCommand);
+            }
+            finally
+            {
+                ignoreOwnerChanged = false;
+            }
         }
 
         public void OnNowOwnerOfProperty(Deed deed)
@@ -1074,9 +1078,9 @@ namespace Eco.Mods.Companies
         public void ChangeCeo(User newCeo)
         {
             if (Employees.Contains(newCeo)) { Employees.Remove(newCeo); }
-			AddCeoAsEmployee();
+            AddCeoAsEmployee();
 
-			Ceo = newCeo;
+            Ceo = newCeo;
             MarkPerUserTooltipDirty(newCeo);
 
             OnEmployeesChanged();
@@ -1138,8 +1142,8 @@ namespace Eco.Mods.Companies
             sb.Append(TextLoc.HeaderLoc($"Citizenship: "));
             sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None.")); 
             sb.Append(TextLoc.HeaderLoc($"Company Legal Person: "));
-			sb.AppendLine(LegalPerson != null ? LegalPerson.UILink() : Localizer.DoStr("None."));
-			return sb.ToLocString();
+            sb.AppendLine(LegalPerson != null ? LegalPerson.UILink() : Localizer.DoStr("None."));
+            return sb.ToLocString();
         }
 
         [NewTooltip(CacheAs.Instance | CacheAs.User, 110)]
