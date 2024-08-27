@@ -102,7 +102,8 @@ namespace Eco.Mods.Companies
             {
                 targetCompany.SendCompanyMessage(Localizer.Do($"{user.UILink()} has declined the invitation to join the company.")); 
                 user.OkBoxLoc($"You rejected the invitation to {targetCompany.UILink()}");
-            } else
+            }
+            else
             {
                 user.OkBoxLoc($"You aren't invited invitation to {targetCompany.UILink()}");
             }
@@ -113,7 +114,7 @@ namespace Eco.Mods.Companies
         {
             var company = Companies.Company.GetEmployer(user);
             if (company != null) {
-                user.OkBoxLoc($"You are already bounded to {company.UILink()}...");
+                user.OkBoxLoc($"You are an employee of {company.UILink()}...");
                 return;  
             }
 
@@ -125,7 +126,7 @@ namespace Eco.Mods.Companies
                 {
                     if(!sb.ToString().IsSet())
                     {
-                        sb.AppendLineLoc($"Your are invite to these companies:\n\n");
+                        sb.AppendLineLoc($"You have invites from the following companies:\n\n");
                     }
 
                     sb.AppendLineLoc($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()}");
@@ -134,7 +135,7 @@ namespace Eco.Mods.Companies
 
             if (!sb.ToString().IsSet())
             {
-                sb.AppendLineLoc($"Your aren't invited any company.") ;
+                sb.AppendLineLoc($"You have no pending invites") ;
             }
 
             user.OkBox(sb.ToLocString());

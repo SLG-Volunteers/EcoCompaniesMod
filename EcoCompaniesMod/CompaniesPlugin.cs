@@ -50,10 +50,10 @@ namespace Eco.Mods.Companies
         [LocDescription("If enabled, the legal person of a company can't receive reputation (this does not include the 'ReputationAverages')."), Category("Reputation")]
         public bool DenyLegalPersonReputationEnabled { get; set; } = false;
 
-		[LocDescription("If enabled, the company members can't receive reputation."), Category("Reputation")]
-		public bool DenyCompanyMembersExternalReputationEnabled { get; set; } = false;
+        [LocDescription("If enabled, the company members can't receive reputation."), Category("Reputation")]
+        public bool DenyCompanyMembersExternalReputationEnabled { get; set; } = false;
 
-		[LocDescription("If enabled, the company members can't give reputation to each other nor the legal person (also counts for invited members)."), Category("Reputation")]
+        [LocDescription("If enabled, the company members can't give reputation to each other nor the legal person (also counts for invited members)."), Category("Reputation")]
         public bool DenyCompanyMembersReputationEnabled { get; set; } = false;
 
         [LocDescription("If enabled, the average repuation from all employees will be given to the legal person (in addition to their own reputation if they have any)."), Category("Reputation")]
