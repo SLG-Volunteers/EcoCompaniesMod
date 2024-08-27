@@ -220,7 +220,7 @@ namespace Eco.Mods.Companies
             MarkPerUserTooltipDirty(target);
 
             var acceptLink =Text.CopyToClipBoard(Text.Color(Color.Green, $"To accept use"), $"/company join {Name}", $"/company join {Name}");
-            var rejectLink = Text.CopyToClipBoard(Text.Color(Color.Red, $"To reject use"), $"/company reject {Name}", $"/company join {Name}");
+            var rejectLink = Text.CopyToClipBoard(Text.Color(Color.Red, $"To reject use"), $"/company reject {Name}", $"/company reject {Name}");
             var headerText = Text.Header($"You have been invited to join {this.UILink()}");
 
             target.MailLoc($"{headerText}\n\n{acceptLink}\n{rejectLink}", NotificationCategory.Government);
