@@ -394,7 +394,10 @@ namespace Eco.Mods.Companies
                 {
                     lawPostResult.AddPostEffect(() =>
                     {
-                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.UpdateAllVehicles()); // take over vehicle if we got some new
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => { 
+                            company.UpdateAllVehicles(); 
+                            company.UpdateAllAuthLists(); 
+                        });  // take over vehicle if we got some new
                         Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
                     });
                 }
