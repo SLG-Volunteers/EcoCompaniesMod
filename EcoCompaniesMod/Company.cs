@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Eco.Mods.Companies
 {
@@ -21,6 +22,8 @@ namespace Eco.Mods.Companies
     using Gameplay.Items;
     using Gameplay.Items.InventoryRelated;
     using Gameplay.Economy;
+    using Gameplay.Economy.Reputation;
+    using Gameplay.Economy.Reputation.Internal;
     using Gameplay.GameActions;
     using Gameplay.Aliases;
     using Gameplay.Property;
@@ -38,7 +41,7 @@ namespace Eco.Mods.Companies
     using Shared.Items;
     using Shared.IoC;
     using Shared.Utils;
-    using Eco.Core.Plugins;
+    using Shared.Math;
 
     public readonly struct ShareholderHolding
     {
@@ -57,7 +60,10 @@ namespace Eco.Mods.Companies
     [Serialized, ForceCreateView]
     public class Company : SimpleEntry, IHasIcon
     {
-        private bool inReceiveMoney, inGiveMoney;
+        private bool inReceiveMoney, inGiveMoney, ignoreOwnerChanged;
+
+        public static bool IsInvited(User user, Company company)
+            => company.InviteList.Contains(user);
 
         public static Company GetEmployer(User user)
             => Registrars.Get<Company>().Where(x => x.IsEmployee(user)).SingleOrDefault();
@@ -81,6 +87,9 @@ namespace Eco.Mods.Companies
         [Serialized] public BankAccount BankAccount { get; set; }
 
         [Serialized] public Currency SharesCurrency { get; set; }
+
+        [Serialized, ForceSerializeFullObject] CompanyPositiveReputationGiver PositiveReputationGiver { get; set; }
+        [Serialized, ForceSerializeFullObject] CompanyNegativeReputationGiver NegativeReputationGiver { get; set; }
 
         public Deed HQDeed => LegalPerson?.HomesteadDeed;
 
@@ -139,6 +148,8 @@ namespace Eco.Mods.Companies
 
             // Setup employees
             Employees ??= new ThreadSafeHashSet<User>();
+            PositiveReputationGiver ??= new();
+            NegativeReputationGiver ??= new();
 
             // Setup legal person
             if (LegalPerson == null)
@@ -175,13 +186,9 @@ namespace Eco.Mods.Companies
                 SharesCurrency = CurrencyManager.GetPlayerCurrency(LegalPerson);
                 SharesCurrency.SetName(null, Registrars.Get<Currency>().GetUniqueName(CompanyManager.GetCompanyCurrencyName(Name)));
             }
-
-            // Setup HQ deed
-            RefreshHQPlotsSize();
         }
 
-        [OnDeserialized]
-        private void OnDeserialized()
+        public void OnPostInitialized()
         {
             RefreshHQPlotsSize();
         }
@@ -211,7 +218,13 @@ namespace Eco.Mods.Companies
             InviteList.Add(target);
             OnInviteListChanged();
             MarkPerUserTooltipDirty(target);
-            target.MailLoc($"You have been invited to join {this.UILink()}. Type '/company join {Name}' to accept.", NotificationCategory.Government);
+
+            var acceptLink =Text.CopyToClipBoard(Text.Color(Color.Green, $"To accept use"), $"/company join {Name}", $"/company join {Name}");
+            var rejectLink = Text.CopyToClipBoard(Text.Color(Color.Red, $"To reject use"), $"/company reject {Name}", $"/company reject {Name}");
+            var headerText = Text.Header($"You have been invited to join {this.UILink()}");
+
+            target.MailLoc($"{headerText}\n\n{acceptLink}\n{rejectLink}", NotificationCategory.Government);
+
             SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has invited {target.UILink()} to join the company."));
             errorMessage = LocString.Empty;
             return true;
@@ -268,9 +281,10 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(target);
                 SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has fired {target.UILink()} from the company."));
             });
-            pack.TryPerform(null);
-            errorMessage = LocString.Empty;
-            return true;
+
+            var actionMessage = pack.TryPerform(null);
+            errorMessage = actionMessage.Message;
+            return !actionMessage.Message.IsSet();
         }
 
         public bool TryJoin(User user, out LocString errorMessage)
@@ -305,18 +319,17 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(user);
                 SendCompanyMessage(Localizer.Do($"{user.UILink()} has joined the company."));
             });
-            pack.TryPerform(null);
-            errorMessage = LocString.Empty;
-            return true;
+
+            var actionMessage = pack.TryPerform(null);
+            errorMessage = actionMessage.Message;
+            return !actionMessage.Message.IsSet();
         }
 
         public void ForceJoin(User user)
         {
-            var oldEmployer = GetEmployer(user);
-            if (oldEmployer != null)
-            {
-                oldEmployer.ForceLeave(user);
-            }
+            if (AllEmployees.Contains(user)) { return; }
+
+            GetEmployer(user)?.ForceLeave(user);
             if (!Employees.Add(user)) { return; }
             InviteList.Remove(user);
             OnEmployeesChanged();
@@ -350,9 +363,10 @@ namespace Eco.Mods.Companies
                 MarkPerUserTooltipDirty(user);
                 SendCompanyMessage(Localizer.Do($"{user.UILink()} has resigned from the company."));
             });
-            pack.TryPerform(null);
-            errorMessage = LocString.Empty;
-            return true;
+
+            var actionMessage = pack.TryPerform(null);
+            errorMessage = actionMessage.Message;
+            return !actionMessage.Message.IsSet();
         }
 
         public void ForceLeave(User user)
@@ -515,9 +529,11 @@ namespace Eco.Mods.Companies
 
         private void OnDeedOwnerChanged(object obj, MemberChangedBeforeAfterEventArgs ev)
         {
+            if (ignoreOwnerChanged) { return; }
             if (obj is not Deed deed) { return; }
             if (ev.Before is not IAlias oldOwner) { return; }
             if (ev.After is not IAlias newOwner) { return; }
+
             Logger.Debug($"Deed {deed} (for {Name}) changed owner from {oldOwner.Name} to {newOwner.Name}");
             if (oldOwner.ContainsUser(LegalPerson) && !newOwner.ContainsUser(LegalPerson))
             {
@@ -547,11 +563,10 @@ namespace Eco.Mods.Companies
             var newPlotCount = (plots.ClaimPapersInventory?.TotalNumberOfItems(typeof(ClaimPaperItem)) ?? 0) + (hq ? HQSize : ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake);
             if (newPlotCount != plots.Parent.GetDeed()?.AllowedPlots)
             {
-                var claimsUpdatedMethod = typeof(PlotsComponent)
-                    .GetMethod("ClaimsUpdated", BindingFlags.NonPublic | BindingFlags.Instance);
+                var claimsUpdatedMethod = typeof(PlotsComponent).GetMethod("UpdateClaimData", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (claimsUpdatedMethod == null)
                 {
-                    Logger.Error($"Failed to find method PlotsComponent.ClaimsUpdated via reflection");
+                    Logger.Error($"Failed to find method PlotsComponent.UpdateClaimData via reflection");
                     return;
                 }
                 claimsUpdatedMethod.Invoke(plots, new object[] { null });
@@ -571,8 +586,26 @@ namespace Eco.Mods.Companies
         private static readonly MethodInfo worldObjectUpdateOwnerName = typeof(WorldObject).GetMethod("UpdateOwnerName", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo homesteadFoundationComponentCitizenshipUpdated = typeof(HomesteadFoundationComponent).GetMethod("CitizenshipUpdated", BindingFlags.NonPublic | BindingFlags.Instance);
 
+        public void EditRent(Deed deed, User user)
+        {
+            try
+            {
+                ignoreOwnerChanged = true;  // Don't go through company events for this - we will give it right back after we open the UI.
+                var currentOwner = deed.Owner;
+                deed.ForceChangeOwners(user, OwnerChangeType.AdminCommand);
+                deed.Rent.EditRent(user.Player);
+                deed.ForceChangeOwners(currentOwner, OwnerChangeType.AdminCommand);
+            }
+            finally
+            {
+                ignoreOwnerChanged = false;
+            }
+        }
+
         public void OnNowOwnerOfProperty(Deed deed)
         {
+            if(ignoreOwnerChanged) return;
+
             Logger.Debug($"'{Name}' is now owner of property '{deed.Name}'");
             this.WatchProp(deed, nameof(Deed.Owner), OnDeedOwnerChanged);
             if (deed.IsHomesteadDeed)
@@ -582,11 +615,11 @@ namespace Eco.Mods.Companies
 
                 Registrars.Get<Deed>().Rename(deed, $"{Name} HQ", true);
 
-                Settlement? oldOwnerCitizenship = null;
+                Settlement oldOwnerCitizenship = null;
                 if (deed.HostObject.TryGetObject(out var hostObject))
                 {
-                    oldOwnerCitizenship = hostObject.Creator.DirectCitizenship;
-                    //hostObject.Creator = LegalPerson;
+                    oldOwnerCitizenship = hostObject.Creator?.DirectCitizenship;
+
                     if (worldObjectCreator == null)
                     {
                         Logger.Error($"Failed to find property WorldObject.Creator via reflection");
@@ -595,7 +628,7 @@ namespace Eco.Mods.Companies
                     {
                         worldObjectCreator.SetValue(hostObject, LegalPerson, null);
                     }
-                    //hostObject.UpdateOwnerName(OwnerChangeType.Normal);
+
                     if (worldObjectUpdateOwnerName == null)
                     {
                         Logger.Error($"Failed to find property WorldObject.UpdateOwnerName via reflection");
@@ -604,11 +637,12 @@ namespace Eco.Mods.Companies
                     {
                         worldObjectUpdateOwnerName.Invoke(hostObject, new object[] { OwnerChangeType.Normal });
                     }
+
+                    SetCitizenOf(deed.CachedOwningSettlement ?? oldOwnerCitizenship); // has to be as early as possible
                     deed.UpdateInfluencingSettlement();
 
                     if (hostObject.TryGetComponent<HomesteadFoundationComponent>(out var foundationComponent))
                     {
-                        // foundationComponent.CitizenshipUpdated(true);
                         if (homesteadFoundationComponentCitizenshipUpdated == null)
                         {
                             Logger.Error($"Failed to find method HomesteadFoundationComponent.CitizenshipUpdated via reflection");
@@ -627,7 +661,7 @@ namespace Eco.Mods.Companies
                 {
                     deed.UpdateInfluencingSettlement();
                 }
-                SetCitizenOf(deed.CachedOwningSettlement ?? oldOwnerCitizenship);
+
                 SendCompanyMessage(Localizer.Do($"{deed.UILink()} is now the new HQ of {this.UILink()}"));
 
                 deed.Residency.AllowPlotsUnclaiming = true;
@@ -642,7 +676,10 @@ namespace Eco.Mods.Companies
 
         public void OnNoLongerOwnerOfProperty(Deed deed)
         {
+            if (ignoreOwnerChanged) return;
+
             Logger.Debug($"'{Name}' is no longer owner of property '{deed.Name}'");
+
             this.Unwatch(deed);
             if (deed == HQDeed)
             {
@@ -752,13 +789,146 @@ namespace Eco.Mods.Companies
             }
         }
 
+
+        public void UpdateLegalPersonReputation()
+        {
+            if (!CompaniesPlugin.Obj.Config.ReputationAveragesEnabled) { return; }
+
+            CleanSelfReputation();
+
+            var reputationObj = ReputationManager.Obj.GetReputation(LegalPerson);
+
+            reputationObj?.Relationships
+                .Where(x => x.Key is CompanyNegativeReputationGiver || x.Key is CompanyPositiveReputationGiver)
+                .ForEach(x => reputationObj.AdjustRelationship(x.Key, -x.Value.Value, null, true));
+
+            // at this point we have to wait a bit to let the reputationmanager recache...
+            Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
+            {
+                var   currentReputation       = LegalPerson.Reputation;
+                float reputationCountPostive  =  0;
+                float reputationCountNegative = 0;
+
+                foreach (var user in AllEmployees)
+                {
+                    var ignoredReputation = 0f;
+                    if(CompaniesPlugin.Obj.Config.ReputationAveragesBonusEnabled) // we have to remove that bonus if the config is set so...
+                    {
+                        ignoredReputation = ReputationManager.Obj.GetReputation(user)?.Relationships?.FirstOrNull(x => x.Key is SpeaksWellOfOthersReputationGiver)?.Value.Value ?? 0f;
+                    }
+
+                    var positiveReputation   = ReputationManager.Obj.GetPositiveReputation(user);
+                    var negativeReputation   = ReputationManager.Obj.GetRep(user) - positiveReputation;
+                    var relativeReputation   = (positiveReputation - ignoredReputation) + negativeReputation;
+
+                    reputationCountPostive  += relativeReputation;
+                    reputationCountNegative += negativeReputation;
+
+                    //Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {ignoredReputation} | {user.Name}");
+                }
+
+                //Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+
+                reputationCountPostive  = (reputationCountPostive != 0) ? reputationCountPostive / AllEmployees.Count() : reputationCountPostive;
+                reputationCountNegative = (reputationCountPostive != 0) ? reputationCountNegative / AllEmployees.Count() : reputationCountNegative;
+
+                reputationObj.AdjustRelationship(NegativeReputationGiver, reputationCountNegative, null, true);
+                reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive, null, true);
+
+                //Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+
+                if (currentReputation != LegalPerson.Reputation)
+                {
+                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.InfoBox);
+                }
+            });
+        }
         public void UpdateCitizenships()
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
+
             foreach (var user in AllEmployees)
             {
                 UpdateCitizenship(user);
             }
+        }
+
+        private void CleanSelfReputation()
+        {
+            if(!CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) { return; } // we don't remove self reputation if this option is on (company members can give reputation to each other)
+
+            foreach (var sourceUser in AllEmployees)
+            {
+                foreach (var targetUser in AllEmployees.Except(sourceUser.SingleItemAsEnumerable()))
+                {
+                    var givenReputation = ReputationManager.Obj.ReputationGivenTotal(sourceUser, targetUser);
+                    if (givenReputation != 0)
+                    {
+                        ReputationManager.Obj.GetReputation(targetUser)?.AdjustRelationship(sourceUser, -givenReputation, null, true);
+                        // Logger.Debug($"{targetUser.Name} <-> {givenReputation} | {sourceUser.Name}");
+                        if (ReputationManager.Obj.ReputationGivenToday(sourceUser, targetUser) != 0)
+                        {
+                            ReputationManager.Obj.ForceReplenishReputation(sourceUser); // refunds given rep to that user (for ui to reflect the "take back")
+                        }
+                    }
+                }
+            }
+        }
+        
+        public void TakeClaim(User claimIssuer, Vector2i claimLocation)
+        {
+            var deed = PropertyManager.GetDeedWorldPos(claimLocation);
+            if (deed != null && !deed.IsVehicleDeed && !deed.IsHomesteadDeed)
+            {
+                var task = claimIssuer.Player?.InputString(new LocString($"Please give your new deed a name:"), new LocString($"{deed.Name}"));
+                task.ContinueWith(x =>
+                {
+                    if (!x.Result.IsEmpty()) { deed.Name = x.Result; }
+
+                    deed.ForceChangeOwners(LegalPerson, OwnerChangeType.Normal); // we don't supress with ignoreOwnerChange here as we want the company to know about the deed
+                    deed.MarkDirty();
+
+                    UpdateAllAuthLists();
+                    MarkDirty();
+                });
+            }
+        }
+
+        public void UpdateAllVehicles()
+        {
+            if (!CompaniesPlugin.Obj.Config.VehicleTransfersEnabled) { return; }
+
+            var nameReplacement = CompaniesPlugin.Obj.Config.VehicleTransfersUseCompanyNameEnabled ? Name : LegalPerson.Name;
+
+            foreach (var user in AllEmployees)
+            {
+                foreach (var obj in user.GetAllProperty().Where(x => x.IsVehicleDeed && x.Owner != LegalPerson))
+                {
+                    var newName       = obj.Name.Replace(obj.Creator?.Name ?? obj.Owner?.Name, nameReplacement); // WT Playtest -> creators where empty on some objects!? migration?
+                    var newNameParts  = newName.Split(' ');
+
+                    // Logger.Debug($"Vehicle '{obj.Name}' from '{obj.Owner.Name}' transfered to '{Name}'");
+                    
+                    Registrars.Get<Deed>().Rename(obj,
+                                                  int.TryParse(newNameParts.Last(), out int counterValue) ? newName.Replace(counterValue.ToString(), $"{obj.Id}") : $"{newName} {obj.Id}",
+                                                  true,
+                                                  true);
+
+                    if(LegalPerson.HomesteadDeed != null)
+                    {
+                        obj.Color = LegalPerson.HomesteadDeed.Color;
+                    }
+
+                    obj.ForceChangeOwners(LegalPerson, OwnerChangeType.Normal);
+                    obj.MarkDirty();
+                }
+
+                user.MarkDirty();
+                MarkPerUserTooltipDirty(user);
+            }
+
+            LegalPerson.MarkDirty();
+            MarkPerUserTooltipDirty(LegalPerson);
         }
 
         private void UpdateCitizenship(User user)
@@ -779,10 +949,7 @@ namespace Eco.Mods.Companies
             else
             {
                 // Company has no citizenship, ensure user inherits it
-                if (user.DirectCitizenship != null)
-                {
-                    user.DirectCitizenship.Citizenship.DirectCitizenRoster.Leave(user, true);
-                }
+                user.DirectCitizenship?.Citizenship.DirectCitizenRoster.Leave(user, true);
             }
         }
 
@@ -804,6 +971,8 @@ namespace Eco.Mods.Companies
 
         private void OnEmployeesChanged()
         {
+            UpdateLegalPersonReputation();
+            UpdateAllVehicles();
             UpdateAllAuthLists();
             RefreshHQPlotsSize();
             MarkDirty();
@@ -857,14 +1026,10 @@ namespace Eco.Mods.Companies
         private void SetCitizenOf(Settlement settlement)
         {
             if (DirectCitizenship == settlement) { return; }
-            if (DirectCitizenship != null)
-            {
-                DirectCitizenship.Citizenship.DirectCitizenRoster.Leave(LegalPerson);
-            }
-            if (settlement != null)
-            {
-                settlement.Citizenship.DirectCitizenRoster.AddToRoster(null, LegalPerson, true);
-            }
+
+            DirectCitizenship?.Citizenship.DirectCitizenRoster.Leave(LegalPerson);
+            settlement?.Citizenship.DirectCitizenRoster.AddToRoster(null, LegalPerson, true);
+
             LegalPerson.DirectCitizenship = settlement;
         }
 
@@ -873,7 +1038,7 @@ namespace Eco.Mods.Companies
             deed.Accessors.Set(AllEmployees);
             if (deed == HQDeed)
             {
-                deed.Residency.Invitations.InvitationList.Set(AllEmployees);
+                deed.Residency.Invitations.InvitationList.Set(AllEmployees.Where(x => !deed.Residency.Residents.Contains(x)));
                 deed.Residency.AllowPlotsUnclaiming = true;
             }
             deed.MarkDirty();
@@ -896,11 +1061,39 @@ namespace Eco.Mods.Companies
             ServiceHolder<ITooltipSubscriptions>.Obj.MarkTooltipPartDirty(nameof(PerUserTooltip), instance: this, user: user);
         }
 
+        public bool DemoteCeo(User currentCeo)
+        {
+            if (currentCeo != Ceo)
+            {
+                return false;
+            }
+
+            SendCompanyMessage(Localizer.Do($"{currentCeo.UILink()} has been removed as CEO."));
+            AddCeoAsEmployee();
+            Ceo = null;
+
+            return true;
+        }
+
         public void ChangeCeo(User newCeo)
         {
+            if (Employees.Contains(newCeo)) { Employees.Remove(newCeo); }
+            AddCeoAsEmployee();
+
             Ceo = newCeo;
-            SendGlobalMessage(Localizer.Do($"{newCeo.UILink()} is now the CEO of {this.UILink()}!"));
+            MarkPerUserTooltipDirty(newCeo);
+
             OnEmployeesChanged();
+            SendGlobalMessage(Localizer.Do($"{newCeo.UILink()} is now the CEO of {this.UILink()}!"));
+        }
+
+        private void AddCeoAsEmployee()
+        {
+            if (Ceo != null)
+            {
+                Employees.Add(Ceo);
+                MarkPerUserTooltipDirty(Ceo);
+            }
         }
 
         public void SendCompanyMessage(LocString message, NotificationCategory notificationCategory = NotificationCategory.Government, NotificationStyle notificationStyle = NotificationStyle.Chat)
@@ -937,25 +1130,26 @@ namespace Eco.Mods.Companies
             sb.Append(TextLoc.HeaderLoc($"CEO: "));
             sb.AppendLine(Ceo.UILinkNullSafe());
             sb.AppendLine(TextLoc.HeaderLoc($"Employees:"));
-            sb.AppendLine(this.Employees.Any() ? this.Employees.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("citizen", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(Employees.Any() ? Employees.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("citizen", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Finances: "));
-            sb.AppendLine(this.OwnedAccounts.Any() ? this.OwnedAccounts.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("account", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(OwnedAccounts.Any() ? OwnedAccounts.Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("account", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"HQ: "));
-            sb.AppendLine(this.HQDeed != null ? this.HQDeed.UILink() : Localizer.DoStr("None."));
+            sb.AppendLine(HQDeed != null ? HQDeed.UILink() : Localizer.DoStr("None."));
             sb.AppendLine(TextLoc.HeaderLoc($"Property:"));
-            sb.AppendLine(this.OwnedDeeds.Any() ? this.OwnedDeeds.Where(x => x != HQDeed).Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("deed", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(OwnedDeeds.Any() ? OwnedDeeds.Where(x => x != HQDeed).Select(x => x.UILinkNullSafe()).InlineFoldoutListLoc("deed", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.AppendLine(TextLoc.HeaderLoc($"Shareholders:"));
-            sb.AppendLine(this.Shareholders.Any() ? this.Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
+            sb.AppendLine(Shareholders.Any() ? Shareholders.Select(x => x.Description).InlineFoldoutListLoc("holding", TooltipOrigin.None, 5) : Localizer.DoStr("None."));
             sb.Append(TextLoc.HeaderLoc($"Citizenship: "));
-            sb.AppendLine(this.DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None."));
+            sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None.")); 
+            sb.Append(TextLoc.HeaderLoc($"Company Legal Person: "));
+            sb.AppendLine(LegalPerson != null ? LegalPerson.UILink() : Localizer.DoStr("None."));
             return sb.ToLocString();
         }
 
         [NewTooltip(CacheAs.Instance | CacheAs.User, 110)]
         public LocString PerUserTooltip(User user)
         {
-            var sb = new LocStringBuilder();
-            if (user == Ceo)
+            if (user == Ceo) 
             {
                 return Localizer.DoStr("You are the CEO of this company.");
             }

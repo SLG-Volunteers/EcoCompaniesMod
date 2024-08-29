@@ -61,7 +61,7 @@ namespace Eco.Mods.Companies
 
         public readonly struct CreateAttempt : IEquatable<CreateAttempt>
         {
-            public static readonly CreateAttempt Invalid = new CreateAttempt();
+            public static readonly CreateAttempt Invalid = new();
 
             public readonly User CEO;
             public readonly string CompanyName;
@@ -252,6 +252,76 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
+        public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
+        {
+            if (CompaniesPlugin.Obj.Config.DenyLegalPersonReputationEnabled) // we do not allow anybody to honor the company legal person if settings are matching
+            {
+                var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
+                if (receiverIsLegalPerson != null)
+                {
+                    lawPostResult.Success = false;
+                    NotificationManager.ServerMessageToPlayer(
+                        Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
+                        reputationTransferData.ReputationSender,
+                        NotificationCategory.Reputation,
+                        NotificationStyle.InfoBox
+                    );
+
+                    return;
+                }
+            }
+
+            var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && receiverEmployeer != null)
+            {
+                lawPostResult.Success = false;
+                NotificationManager.ServerMessageToPlayer(
+                    Localizer.Do($"You can't give reputation to a member of a company."),
+                    reputationTransferData.ReputationSender,
+                    NotificationCategory.Reputation,
+                    NotificationStyle.InfoBox
+                );
+
+                return;
+            }
+
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) // we do not allow the employees to reputate internal, if the settings match
+            {
+                var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
+                
+                if (senderCompany != null)
+                {
+                    if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
+                    {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is (or invited to become) a member of {senderCompany.UILink()} and can't receive any reputation from you."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
+
+                        return;
+                    }
+                }
+
+                if (receiverEmployeer != null)
+                {
+                    if (Company.IsInvited(reputationTransferData.ReputationSender, receiverEmployeer))
+                    {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"You are invited to become a member of {receiverEmployeer.UILink()} and can't give reputation to anyone in your company."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
+
+                        return;
+                    }
+                }
+            }
+        }
 
         public void InterceptStartHomesteadGameAction(StartHomestead startHomestead, ref PostResult lawPostResult)
         {
@@ -287,37 +357,70 @@ namespace Eco.Mods.Companies
             // After any pickup, try and fixup homestead claim items
             if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PickingUpObject)
             {
+                // workaround V11 bug ECO-36228 which let's empty deeds behind... | save the deed before it's gone
+                var deed = PropertyManager.GetDeedWorldPos(placeOrPickUpObject.ActionLocation.XZ);
+
                 lawPostResult.AddPostEffect(() =>
                 {
-                    Task.Delay(250).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
+                    Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
+
+                    // workaround V11 bug ECO-36228 which let's empty deeds behind... | remove the deed after a short delay to let the game catch up
+                    if (deed != null && (placeOrPickUpObject.ItemUsed is SettlementClaimStakeItem settlementClaimStake || placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem homeClaimStake))
+                    {
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
+                        {
+                            try
+                            {
+                                if (deed.OwnedObjects?.Any() != true)
+                                {
+                                    // Logger.Debug($"Fixed up empty deed '{deed.Id}' left due to ECO-36228");
+                                    deed.ForceChangeOwners(placeOrPickUpObject.Citizen, OwnerChangeType.CivicUpdate);
+                                    Registrars.Get<Deed>().Remove(deed);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Debug($"Could not fix '{deed.Id}' left due to ECO-36228:");
+                                Logger.Debug(ex.Message);
+                            }
+                        });
+                    }
                 });
+            }
+            else
+            {
+                var company = Company.GetEmployer(placeOrPickUpObject.Citizen);
+                if (company != null)
+                {
+                    lawPostResult.AddPostEffect(() =>
+                    {
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => { 
+                            company.UpdateAllVehicles(); 
+                            company.UpdateAllAuthLists(); 
+                        });  // take over vehicle if we got some new
+                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
+                    });
+                }
             }
         }
 
         public void HandleDeedDestroyed(Deed deed)
         {
             if (deed.Owner is not User owner) { return; }
-            var company = Company.GetFromLegalPerson(owner);
-            if (company != null)
-            {
-                company.OnNoLongerOwnerOfProperty(deed);
-            }
+            Company.GetFromLegalPerson(owner)?.OnNoLongerOwnerOfProperty(deed);
         }
 
         public void HandleDeedOwnerChanged(Deed deed)
         {
             if (deed.Owner is not User newOwner) { return; }
             var company = Company.GetFromLegalPerson(newOwner);
-            if (company != null)
-            {
-                // Note: we're assuming that we're not already an owner of the deed (e.g. change between aliases both containing the legal person)
-                company.OnNowOwnerOfProperty(deed);
-            }
+
+            // Note: we're assuming that we're not already an owner of the deed (e.g. change between aliases both containing the legal person)
+            company?.OnNowOwnerOfProperty(deed);
         }
 
         private void FixupHomesteadClaimItems(User employee)
         {
-
             var company = Company.GetEmployer(employee);
             if (company == null) { return; }
             // Sweep their inv looking for HomesteadClaimStakeItem items with the "user" field set to the legal person and change it to point at them instead
@@ -349,7 +452,7 @@ namespace Eco.Mods.Companies
 
         private void ClaimHomesteadAsHQAsyncRetry(User employee, Company employer)
         {
-            Task.Delay(250).ContinueWith((t) => ClaimHomesteadAsHQ(employee, employer, false));
+            Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => ClaimHomesteadAsHQ(employee, employer, false));
         }
 
         private void ClaimHomesteadAsHQ(User employee, Deed deed, Company employer)

@@ -1,6 +1,4 @@
-﻿using System;
-using System.Reflection;
-
+﻿
 namespace Eco.Mods.Companies
 {
     using Core.Controller;
@@ -9,8 +7,6 @@ namespace Eco.Mods.Companies
 
     using Shared.Localization;
     using Shared.Networking;
-    using Shared.Utils;
-    using Shared.Serialization;
 
     using Gameplay.Civics.GameValues;
     using Gameplay.Economy;

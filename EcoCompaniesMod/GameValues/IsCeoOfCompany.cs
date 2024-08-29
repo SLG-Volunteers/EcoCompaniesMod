@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Eco.Mods.Companies
+﻿namespace Eco.Mods.Companies
 {
     using Core.Controller;
     using Core.Utils;

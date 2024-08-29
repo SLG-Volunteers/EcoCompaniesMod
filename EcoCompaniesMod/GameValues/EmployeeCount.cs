@@ -1,7 +1,4 @@
-﻿using System;
-using System.Linq;
-
-namespace Eco.Mods.Companies
+﻿namespace Eco.Mods.Companies
 {
     using Core.Controller;
     using Core.Utils;
@@ -13,7 +10,6 @@ namespace Eco.Mods.Companies
 
     using Gameplay.Civics.GameValues;
     using Gameplay.Systems.TextLinks;
-    using Gameplay.Aliases;
     using Gameplay.Players;
 
     [Eco, LocCategory("Companies"), LocDescription("The number of employees of a company, including the CEO.")]
