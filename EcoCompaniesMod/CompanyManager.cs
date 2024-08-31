@@ -254,6 +254,8 @@ namespace Eco.Mods.Companies
         }
         public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
         {
+            if (reputationTransferData.TargetType != ReputationTargetType.ReputationGivenToUser) { return;}
+
             if (CompaniesPlugin.Obj.Config.DenyLegalPersonReputationEnabled) // we do not allow anybody to honor the company legal person if settings are matching
             {
                 var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
@@ -354,6 +356,8 @@ namespace Eco.Mods.Companies
 
             if (placeOrPickUpObject.Citizen == null) { return; }
 
+            var isClaimDeed = placeOrPickUpObject.ItemUsed is SettlementClaimStakeItem settlementClaimStake || placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem homeClaimStake;
+
             // After any pickup, try and fixup homestead claim items
             if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PickingUpObject)
             {
@@ -365,7 +369,7 @@ namespace Eco.Mods.Companies
                     Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
 
                     // workaround V11 bug ECO-36228 which let's empty deeds behind... | remove the deed after a short delay to let the game catch up
-                    if (deed != null && (placeOrPickUpObject.ItemUsed is SettlementClaimStakeItem settlementClaimStake || placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem homeClaimStake))
+                    if (deed != null && isClaimDeed)
                     {
                         Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
                         {
@@ -398,7 +402,11 @@ namespace Eco.Mods.Companies
                             company.UpdateAllVehicles(); 
                             company.UpdateAllAuthLists(); 
                         });  // take over vehicle if we got some new
-                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
+
+                        if (isClaimDeed)
+                        {
+                            Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
+                        }
                     });
                 }
             }
