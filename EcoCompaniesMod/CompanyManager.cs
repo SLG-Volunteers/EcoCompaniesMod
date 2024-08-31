@@ -252,9 +252,22 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
+        public void InterceptTradeAction(TradeAction tradeActionData, ref PostResult lawPostResult)
+        {
+            var targetCompany = Company.GetFromLegalPerson(tradeActionData.ShopOwner);
+            if(targetCompany != null)
+            {
+                var boughtOrSold = tradeActionData.BoughtOrSold == BoughtOrSold.Selling ? "sold" : "bought";
+                targetCompany.SendCompanyMessage(Localizer.Do($"{targetCompany.UILinkNullSafe()}: {tradeActionData.Citizen.UILinkNullSafe()} {boughtOrSold} {tradeActionData.NumberOfItems} {tradeActionData.ItemUsed.UILinkNullSafe()} at {tradeActionData.WorldObject.UILinkNullSafe()}"), NotificationCategory.YourTrades);
+            }
+        }
+
         public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
         {
-            if (reputationTransferData.TargetType != ReputationTargetType.ReputationGivenToUser) { return;}
+            if (reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToPicture) { return; }
+
+            var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
+            var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
 
             if (CompaniesPlugin.Obj.Config.DenyLegalPersonReputationEnabled) // we do not allow anybody to honor the company legal person if settings are matching
             {
@@ -273,8 +286,7 @@ namespace Eco.Mods.Companies
                 }
             }
 
-            var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
-            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && receiverEmployeer != null)
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && receiverEmployeer != null && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser)
             {
                 lawPostResult.Success = false;
                 NotificationManager.ServerMessageToPlayer(
@@ -287,10 +299,8 @@ namespace Eco.Mods.Companies
                 return;
             }
 
-            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) // we do not allow the employees to reputate internal, if the settings match
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser) // we do not allow the employees to reputate internal, if the settings match
             {
-                var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
-                
                 if (senderCompany != null)
                 {
                     if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
@@ -322,6 +332,15 @@ namespace Eco.Mods.Companies
                         return;
                     }
                 }
+            }
+
+            if (lawPostResult.Success && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser && senderCompany != receiverEmployeer) // update both sides if we had success
+            {
+                Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
+                {
+                    senderCompany?.UpdateLegalPersonReputation();
+                    receiverEmployeer?.UpdateLegalPersonReputation();
+                });
             }
         }
 

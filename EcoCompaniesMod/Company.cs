@@ -805,8 +805,8 @@ namespace Eco.Mods.Companies
             // at this point we have to wait a bit to let the reputationmanager recache...
             Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
             {
-                var   currentReputation       = LegalPerson.Reputation;
-                float reputationCountPostive  =  0;
+                var currentReputation = LegalPerson.Reputation;
+                float reputationCountPostive  = 0;
                 float reputationCountNegative = 0;
 
                 foreach (var user in AllEmployees)
@@ -843,6 +843,7 @@ namespace Eco.Mods.Companies
                 }
             });
         }
+
         public void UpdateCitizenships()
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
