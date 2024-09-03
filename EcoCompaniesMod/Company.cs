@@ -839,7 +839,7 @@ namespace Eco.Mods.Companies
 
                 if (currentReputation != LegalPerson.Reputation)
                 {
-                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.InfoBox);
+                    SendCompanyMessage(Localizer.Do($"Reputation for {this.UILink()} changed to {TextLoc.StyledNum(LegalPerson.Reputation)}."), NotificationCategory.Reputation, NotificationStyle.InfoBox);
                 }
             });
         }

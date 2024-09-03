@@ -272,21 +272,36 @@ namespace Eco.Mods.Companies
             if (CompaniesPlugin.Obj.Config.DenyLegalPersonReputationEnabled) // we do not allow anybody to honor the company legal person if settings are matching
             {
                 var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
-                if (receiverIsLegalPerson != null)
+                if (reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToDeed)
                 {
-                    lawPostResult.Success = false;
-                    NotificationManager.ServerMessageToPlayer(
-                        Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
-                        reputationTransferData.ReputationSender,
-                        NotificationCategory.Reputation,
-                        NotificationStyle.InfoBox
-                    );
+                    if (receiverIsLegalPerson != null && receiverIsLegalPerson.IsEmployee(reputationTransferData.ReputationSender)) {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"You can not rate deeds of {reputationTransferData.ReputationReceiver.UILink()} as your member of this company."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
 
-                    return;
+                        return;
+                    }
+                } else {
+                    if (receiverIsLegalPerson != null)
+                    {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
+
+                        return;
+                    }
                 }
             }
 
-            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && receiverEmployeer != null && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser)
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser && receiverEmployeer != null)
             {
                 lawPostResult.Success = false;
                 NotificationManager.ServerMessageToPlayer(
@@ -334,11 +349,15 @@ namespace Eco.Mods.Companies
                 }
             }
 
-            if (lawPostResult.Success && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser && senderCompany != receiverEmployeer) // update both sides if we had success
+            if (lawPostResult.Success) // update both sides if we had success
             {
                 Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
                 {
-                    senderCompany?.UpdateLegalPersonReputation();
+                    if(senderCompany != receiverEmployeer)
+                    {
+                        senderCompany?.UpdateLegalPersonReputation();
+                    }
+
                     receiverEmployeer?.UpdateLegalPersonReputation();
                 });
             }
