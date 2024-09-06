@@ -258,7 +258,11 @@ namespace Eco.Mods.Companies
             if(targetCompany != null)
             {
                 var boughtOrSold = tradeActionData.BoughtOrSold == BoughtOrSold.Selling ? "sold" : "bought";
-                targetCompany.SendCompanyMessage(Localizer.Do($"{targetCompany.UILinkNullSafe()}: {tradeActionData.Citizen.UILinkNullSafe()} {boughtOrSold} {tradeActionData.NumberOfItems} {tradeActionData.ItemUsed.UILinkNullSafe()} at {tradeActionData.WorldObject.UILinkNullSafe()}"), NotificationCategory.YourTrades);
+
+                lawPostResult.AddPostEffect(() =>
+                {
+                    targetCompany.SendCompanyMessage(Localizer.Do($"{targetCompany.UILinkNullSafe()}: {tradeActionData.Citizen.UILinkNullSafe()} {boughtOrSold} {tradeActionData.NumberOfItems} {tradeActionData.ItemUsed.UILinkNullSafe()} at {tradeActionData.WorldObject.UILinkNullSafe()}"), NotificationCategory.YourTrades);
+                });
             }
         }
 
@@ -353,7 +357,7 @@ namespace Eco.Mods.Companies
             {
                 Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
                 {
-                    if(senderCompany != receiverEmployeer)
+                    if(reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser) // update only needed if users involved on sender side as we get speaking well bonus (maybe)
                     {
                         senderCompany?.UpdateLegalPersonReputation();
                     }
