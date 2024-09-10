@@ -114,8 +114,8 @@ namespace Eco.Mods.Companies
                     CompanyManager.Obj.InterceptReputationTransfer(reputationTransferAction, ref result);
                     break;
                 case TradeAction tradeAction:
-					CompanyManager.Obj.InterceptTradeAction(tradeAction, ref result);
-					break;
+                    CompanyManager.Obj.InterceptTradeAction(tradeAction, ref result);
+                    break;
             }
             return result;
         }
