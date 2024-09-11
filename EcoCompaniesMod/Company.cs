@@ -726,10 +726,13 @@ namespace Eco.Mods.Companies
 
         #endregion
 
-        public void UpdateOnlineState() // set the last online time for out legel person to now if any employee logged in or logout.
-		{
-			LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
-			LegalPerson.MarkDirty();
+        public void UpdateOnlineState()
+        {
+            if(AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legel person to now if all employees logged out
+			{
+                LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
+                LegalPerson.MarkDirty();
+            }
         }
 
 
