@@ -168,14 +168,23 @@ namespace Eco.Mods.Companies
             GameData.Obj.VoidStorageManager.VoidStorages.Callbacks.OnAdd.Add(OnVoidStorageAdded);
             PropertyManager.DeedDestroyedEvent.Add(OnDeedDestroyed);
             PropertyManager.DeedOwnerChangedEvent.Add(OnDeedOwnerChanged);
-        }
+			UserManager.OnUserLoggedOut.Add(OnUserLoggedOut);
+		}
 
         internal static void OnPostInitialize()
         {
             Registrars.Get<Company>().ForEach(company => company.OnPostInitialized());
-        }
 
-        private void OnBankAccountPermissionsChanged(BankAccount bankAccount)
+		}
+
+        private static void OnUserLoggedOut(User user)
+        {
+            var userEmployer = Company.GetEmployer(user);
+            userEmployer?.UpdateOnlineState();
+
+		}
+
+		private void OnBankAccountPermissionsChanged(BankAccount bankAccount)
         {
             if (ignoreBankAccountPermissionsChanged) { return; }
             if (bankAccount == null || bankAccount.DualPermissions == null) { return; }
