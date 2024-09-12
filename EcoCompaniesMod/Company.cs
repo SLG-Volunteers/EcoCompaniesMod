@@ -35,8 +35,8 @@ namespace Eco.Mods.Companies
     using Gameplay.UI;
     using Gameplay.Systems;
 
-	using Simulation.Time;
-	using Shared.Serialization;
+    using Simulation.Time;
+    using Shared.Serialization;
     using Shared.Localization;
     using Shared.Services;
     using Shared.Items;
@@ -729,14 +729,14 @@ namespace Eco.Mods.Companies
         public void UpdateOnlineState()
         {
             if(AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legel person to now if all employees logged out
-			{
+            {
                 LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
                 LegalPerson.MarkDirty();
             }
         }
 
 
-		public void OnReceiveMoney(MoneyGameAction moneyGameAction)
+        public void OnReceiveMoney(MoneyGameAction moneyGameAction)
         {
             if (inReceiveMoney) { return; }
             inReceiveMoney = true;
