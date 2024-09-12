@@ -112,14 +112,9 @@ namespace Eco.Mods.Companies
                     break;
                 case ReputationTransfer reputationTransferAction: // intercepts new reputation actions
                     CompanyManager.Obj.InterceptReputationTransfer(reputationTransferAction, ref result);
-                    if (result.Success) // update both sides if we had success
-                    {
-                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
-                        {
-                            Company.GetEmployer(reputationTransferAction.ReputationSender)?.UpdateLegalPersonReputation();
-                            Company.GetEmployer(reputationTransferAction.ReputationReceiver)?.UpdateLegalPersonReputation();
-                        });
-                    }
+                    break;
+                case TradeAction tradeAction:
+                    CompanyManager.Obj.InterceptTradeAction(tradeAction, ref result);
                     break;
             }
             return result;
@@ -173,11 +168,20 @@ namespace Eco.Mods.Companies
             GameData.Obj.VoidStorageManager.VoidStorages.Callbacks.OnAdd.Add(OnVoidStorageAdded);
             PropertyManager.DeedDestroyedEvent.Add(OnDeedDestroyed);
             PropertyManager.DeedOwnerChangedEvent.Add(OnDeedOwnerChanged);
+            UserManager.OnUserLoggedOut.Add(OnUserLoggedOut);
         }
 
         internal static void OnPostInitialize()
         {
             Registrars.Get<Company>().ForEach(company => company.OnPostInitialized());
+
+        }
+
+        private static void OnUserLoggedOut(User user)
+        {
+            var userEmployer = Company.GetEmployer(user);
+            userEmployer?.UpdateOnlineState();
+
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)

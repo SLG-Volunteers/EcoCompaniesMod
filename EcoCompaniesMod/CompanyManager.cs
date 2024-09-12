@@ -252,27 +252,60 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
+        public void InterceptTradeAction(TradeAction tradeActionData, ref PostResult lawPostResult)
+        {
+            var targetCompany = Company.GetFromLegalPerson(tradeActionData.ShopOwner);
+            if(targetCompany != null)
+            {
+                var boughtOrSold = tradeActionData.BoughtOrSold == BoughtOrSold.Selling ? "sold" : "bought";
+
+                lawPostResult.AddPostEffect(() =>
+                {
+                    targetCompany.SendCompanyMessage(Localizer.Do($"{targetCompany.UILinkNullSafe()}: {tradeActionData.Citizen.UILinkNullSafe()} {boughtOrSold} {tradeActionData.NumberOfItems} {tradeActionData.ItemUsed.UILinkNullSafe()} at {tradeActionData.WorldObject.UILinkNullSafe()}"), NotificationCategory.YourTrades);
+                });
+            }
+        }
+
         public void InterceptReputationTransfer(ReputationTransfer reputationTransferData, ref PostResult lawPostResult)
         {
+            if (reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToPicture) { return; }
+
+            var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
+            var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
+
             if (CompaniesPlugin.Obj.Config.DenyLegalPersonReputationEnabled) // we do not allow anybody to honor the company legal person if settings are matching
             {
                 var receiverIsLegalPerson = Company.GetFromLegalPerson(reputationTransferData.ReputationReceiver);
-                if (receiverIsLegalPerson != null)
+                if (reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToDeed)
                 {
-                    lawPostResult.Success = false;
-                    NotificationManager.ServerMessageToPlayer(
-                        Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
-                        reputationTransferData.ReputationSender,
-                        NotificationCategory.Reputation,
-                        NotificationStyle.InfoBox
-                    );
+                    if (receiverIsLegalPerson != null && receiverIsLegalPerson.IsEmployee(reputationTransferData.ReputationSender)) {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"You can not rate deeds of {reputationTransferData.ReputationReceiver.UILink()} as your member of this company."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
 
-                    return;
+                        return;
+                    }
+                } else {
+                    if (receiverIsLegalPerson != null)
+                    {
+                        lawPostResult.Success = false;
+                        NotificationManager.ServerMessageToPlayer(
+                            Localizer.Do($"{reputationTransferData.ReputationReceiver.UILink()} is a company legal person and can't receive reputation."),
+                            reputationTransferData.ReputationSender,
+                            NotificationCategory.Reputation,
+                            NotificationStyle.InfoBox
+                        );
+
+                        return;
+                    }
                 }
             }
 
-            var receiverEmployeer = Company.GetEmployer(reputationTransferData.ReputationReceiver);
-            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && receiverEmployeer != null)
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersExternalReputationEnabled && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser && receiverEmployeer != null)
             {
                 lawPostResult.Success = false;
                 NotificationManager.ServerMessageToPlayer(
@@ -285,10 +318,8 @@ namespace Eco.Mods.Companies
                 return;
             }
 
-            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled) // we do not allow the employees to reputate internal, if the settings match
+            if (CompaniesPlugin.Obj.Config.DenyCompanyMembersReputationEnabled && reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser) // we do not allow the employees to reputate internal, if the settings match
             {
-                var senderCompany = Company.GetEmployer(reputationTransferData.ReputationSender);
-                
                 if (senderCompany != null)
                 {
                     if (senderCompany.IsEmployee(reputationTransferData.ReputationReceiver) || senderCompany.InviteList.Contains(reputationTransferData.ReputationReceiver))
@@ -320,6 +351,19 @@ namespace Eco.Mods.Companies
                         return;
                     }
                 }
+            }
+
+            if (lawPostResult.Success) // update both sides if we had success
+            {
+                Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
+                {
+                    if(reputationTransferData.TargetType == ReputationTargetType.ReputationGivenToUser) // update only needed if users involved on sender side as we get speaking well bonus (maybe)
+                    {
+                        senderCompany?.UpdateLegalPersonReputation();
+                    }
+
+                    receiverEmployeer?.UpdateLegalPersonReputation();
+                });
             }
         }
 
@@ -354,6 +398,8 @@ namespace Eco.Mods.Companies
 
             if (placeOrPickUpObject.Citizen == null) { return; }
 
+            var isClaimDeed = placeOrPickUpObject.ItemUsed is SettlementClaimStakeItem settlementClaimStake || placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem homeClaimStake;
+
             // After any pickup, try and fixup homestead claim items
             if (placeOrPickUpObject.PlacedOrPickedUp == PlacedOrPickedUp.PickingUpObject)
             {
@@ -365,7 +411,7 @@ namespace Eco.Mods.Companies
                     Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => FixupHomesteadClaimItems(placeOrPickUpObject.Citizen));
 
                     // workaround V11 bug ECO-36228 which let's empty deeds behind... | remove the deed after a short delay to let the game catch up
-                    if (deed != null && (placeOrPickUpObject.ItemUsed is SettlementClaimStakeItem settlementClaimStake || placeOrPickUpObject.ItemUsed is HomesteadClaimStakeItem homeClaimStake))
+                    if (deed != null && isClaimDeed)
                     {
                         Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
                         {
@@ -398,7 +444,11 @@ namespace Eco.Mods.Companies
                             company.UpdateAllVehicles(); 
                             company.UpdateAllAuthLists(); 
                         });  // take over vehicle if we got some new
-                        Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
+
+                        if (isClaimDeed)
+                        {
+                            Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t => company.TakeClaim(placeOrPickUpObject.Citizen, placeOrPickUpObject.ActionLocation.XZ)); // take claimstake over if it is one (special handling in compare to vehicle)
+                        }
                     });
                 }
             }

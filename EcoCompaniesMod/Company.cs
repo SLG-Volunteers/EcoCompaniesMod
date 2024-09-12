@@ -34,7 +34,8 @@ namespace Eco.Mods.Companies
     using Gameplay.Objects;
     using Gameplay.UI;
     using Gameplay.Systems;
-    
+
+    using Simulation.Time;
     using Shared.Serialization;
     using Shared.Localization;
     using Shared.Services;
@@ -725,6 +726,16 @@ namespace Eco.Mods.Companies
 
         #endregion
 
+        public void UpdateOnlineState()
+        {
+            if(AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legel person to now if all employees logged out
+            {
+                LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
+                LegalPerson.MarkDirty();
+            }
+        }
+
+
         public void OnReceiveMoney(MoneyGameAction moneyGameAction)
         {
             if (inReceiveMoney) { return; }
@@ -805,8 +816,8 @@ namespace Eco.Mods.Companies
             // at this point we have to wait a bit to let the reputationmanager recache...
             Task.Delay(CompaniesPlugin.TaskDelay).ContinueWith(t =>
             {
-                var   currentReputation       = LegalPerson.Reputation;
-                float reputationCountPostive  =  0;
+                var currentReputation = LegalPerson.Reputation;
+                float reputationCountPostive  = 0;
                 float reputationCountNegative = 0;
 
                 foreach (var user in AllEmployees)
@@ -839,10 +850,11 @@ namespace Eco.Mods.Companies
 
                 if (currentReputation != LegalPerson.Reputation)
                 {
-                    SendCompanyMessage(Localizer.Do($"{this.UILink()} reputation changed: {TextLoc.StyledNum(currentReputation)} to {TextLoc.StyledNum(LegalPerson.Reputation)} - see {LegalPerson.UILink()} for details..."), NotificationCategory.Reputation, NotificationStyle.InfoBox);
+                    SendCompanyMessage(Localizer.Do($"Reputation for {this.UILink()} changed to {TextLoc.StyledNum(LegalPerson.Reputation)}."), NotificationCategory.Reputation, NotificationStyle.InfoBox);
                 }
             });
         }
+
         public void UpdateCitizenships()
         {
             if (!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled) { return; }
