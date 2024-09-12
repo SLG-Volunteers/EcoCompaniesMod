@@ -37,7 +37,7 @@ jobs:
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: mod-binaries-staging
+        name: mod-binaries-${{github.event.release.tag_name}}
         path: EcoCompaniesMod/bin/Release/net7.0/EcoCompaniesMod.*
   deploy:
     name: Upload Release Assets
