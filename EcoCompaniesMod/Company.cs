@@ -43,6 +43,8 @@ namespace Eco.Mods.Companies
     using Shared.IoC;
     using Shared.Utils;
     using Shared.Math;
+    using Shared.Time;
+    using Gameplay.Civics;
 
     public readonly struct ShareholderHolding
     {
@@ -61,7 +63,7 @@ namespace Eco.Mods.Companies
     [Serialized, ForceCreateView]
     public class Company : SimpleEntry, IHasIcon
     {
-        private bool inReceiveMoney, inGiveMoney, ignoreOwnerChanged;
+        private bool inReceiveMoney, inEmployeeReceiveMoney, inGiveMoney, inEmployeeGiveMoney, ignoreOwnerChanged;
 
         public static bool IsInvited(User user, Company company)
             => company.InviteList.Contains(user);
@@ -192,6 +194,14 @@ namespace Eco.Mods.Companies
         public void OnPostInitialized()
         {
             RefreshHQPlotsSize();
+
+            // Fix the homestead claim stake if placed on older version
+            if (LegalPerson.HomesteadDeed != null && LegalPerson.HomesteadDeed.Creator != LegalPerson)
+            {
+                // Logger.Debug($"Creator of '{LegalPerson.HomesteadDeed.Name}' ({LegalPerson.HomesteadDeed.Creator.Name}) is not '{LegalPerson.Name}' - fixing!");
+                LegalPerson.HomesteadDeed.Creator = LegalPerson;
+                LegalPerson.HomesteadDeed.MarkDirty();
+            }
         }
 
         public bool DoesOwnBankAccount(BankAccount bankAccount)
@@ -666,6 +676,7 @@ namespace Eco.Mods.Companies
                 SendCompanyMessage(Localizer.Do($"{deed.UILink()} is now the new HQ of {this.UILink()}"));
 
                 deed.Residency.AllowPlotsUnclaiming = true;
+                deed.Creator = LegalPerson;
             }
             else
             {
@@ -732,9 +743,39 @@ namespace Eco.Mods.Companies
             {
                 LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
                 LegalPerson.MarkDirty();
+
+                UpdatePlayTime();
+
             }
         }
 
+        public void UpdatePlayTime() 
+        {
+            if (LegalPerson != null && LegalPerson.OnlineTimeLog.ActiveSeconds(TimeUtil.SecondsPerDay) < CompaniesPlugin.DailyPlayTime)
+            {
+                var timeSpan = new Range((float)WorldTime.Seconds - (float)CompaniesPlugin.DailyPlayTime, (float)WorldTime.Seconds);
+                LegalPerson.OnlineTimeLog.Active.Add(timeSpan);
+                LegalPerson.MarkDirty();
+                CivicsData.Obj.UpdateTimer.SetToTriggerNextTick();
+            }
+        }
+
+        public void InitPlayTime()
+        {
+            LegalPerson.OnlineTimeLog.Active.Clear();
+            for (var dayCount = WorldTime.Day; (int)dayCount > 0; dayCount -= 1)
+            {
+                var daySeconds = TimeUtil.SecondsPerDay * dayCount;
+                var endPoint = WorldTime.Seconds - daySeconds + CompaniesPlugin.DailyPlayTime;
+                var startPoint = WorldTime.Seconds - daySeconds;
+
+                var timeSpan = new Range((float)startPoint, (float)endPoint);
+                LegalPerson.OnlineTimeLog.Active.Add(timeSpan);
+            }
+
+            LegalPerson.MarkDirty();
+            CivicsData.Obj.UpdateTimer.SetToTriggerNextTick();
+        }
 
         public void OnReceiveMoney(MoneyGameAction moneyGameAction)
         {
@@ -759,6 +800,28 @@ namespace Eco.Mods.Companies
             }
         }
 
+        public void OnEmployeeReceiveMoney(MoneyGameAction moneyGameAction)
+        {
+            if (inEmployeeReceiveMoney) { return; }
+            inEmployeeReceiveMoney = true;
+            try
+            {
+                var pack = new GameActionPack();
+                pack.AddGameAction(new GameActions.CompanyEmployeeIncome
+                {
+                    SourceBankAccount = moneyGameAction.SourceBankAccount,
+                    TargetBankAccount = moneyGameAction.TargetBankAccount,
+                    Currency = moneyGameAction.Currency,
+                    CurrencyAmount = moneyGameAction.CurrencyAmount,
+                    ReceiverCitizen = moneyGameAction.TargetBankAccount.AccountOwner,
+                });
+                pack.TryPerform(null);
+            }
+            finally
+            {
+                inEmployeeReceiveMoney = false;
+            }
+        }
         public void OnGiveMoney(MoneyGameAction moneyGameAction)
         {
             if (inGiveMoney) { return; }
@@ -779,6 +842,30 @@ namespace Eco.Mods.Companies
             finally
             {
                 inGiveMoney = false;
+            }
+        }
+
+
+        public void OnEmployeeGiveMoney(MoneyGameAction moneyGameAction)
+        {
+            if (inEmployeeGiveMoney) { return; }
+            inEmployeeGiveMoney = true;
+            try
+            {
+                var pack = new GameActionPack();
+                pack.AddGameAction(new GameActions.CompanyEmployeeExpense
+                {
+                    SourceBankAccount = moneyGameAction.SourceBankAccount,
+                    TargetBankAccount = moneyGameAction.TargetBankAccount,
+                    Currency = moneyGameAction.Currency,
+                    CurrencyAmount = moneyGameAction.CurrencyAmount,
+                    SendingCitizen = LegalPerson,
+                });
+                pack.TryPerform(null);
+            }
+            finally
+            {
+                inEmployeeGiveMoney = false;
             }
         }
 

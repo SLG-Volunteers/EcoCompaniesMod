@@ -202,10 +202,11 @@ namespace Eco.Mods.Companies
                         // Catch these specifically and noop, to avoid them going into the MoneyGameAction case
                         break;
                     case MoneyGameAction moneyGameAction:
-                        var sourceCompany = Company.GetFromBankAccount(moneyGameAction.SourceBankAccount);
-                        sourceCompany?.OnGiveMoney(moneyGameAction);
-                        var destCompany = Company.GetFromBankAccount(moneyGameAction.TargetBankAccount);
-                        destCompany?.OnReceiveMoney(moneyGameAction);
+                        Company.GetFromBankAccount(moneyGameAction.SourceBankAccount)?.OnGiveMoney(moneyGameAction);
+                        Company.GetEmployer(moneyGameAction.SourceBankAccount.AccountOwner)?.OnEmployeeGiveMoney(moneyGameAction);
+
+                        Company.GetFromBankAccount(moneyGameAction.TargetBankAccount)?.OnReceiveMoney(moneyGameAction);
+                        Company.GetEmployer(moneyGameAction.TargetBankAccount.AccountOwner)?.OnEmployeeReceiveMoney(moneyGameAction);
                         break;
                 }
             }

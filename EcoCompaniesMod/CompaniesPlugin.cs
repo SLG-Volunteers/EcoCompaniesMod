@@ -2,7 +2,6 @@
 using System.Linq;
 using System.Reflection;
 using System.ComponentModel;
-using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -23,6 +22,7 @@ namespace Eco.Mods.Companies
     using Shared.Serialization;
     using Shared.Networking;
     using Shared.IoC;
+    using Shared.Time;
 
     using Gameplay.Players;
     using Gameplay.Systems;
@@ -130,6 +130,7 @@ namespace Eco.Mods.Companies
     {
         private bool ignoreBankAccountPermissionsChanged = false;
         public const int TaskDelay = 250;
+        public const double DailyPlayTime = (TimeUtil.SecondsPerMinute * 5);
 
         public IPluginConfig PluginConfig => config;
 

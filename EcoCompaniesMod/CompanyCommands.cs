@@ -17,6 +17,7 @@ namespace Eco.Mods.Companies
     using Gameplay.Property;
     using Gameplay.UI;
     using Gameplay.Systems.NewTooltip;
+    using Eco.Gameplay.Civics.Demographics;
 
     [ChatCommandHandler]
     public static class CompanyCommands
@@ -444,19 +445,56 @@ namespace Eco.Mods.Companies
             var sb = new LocStringBuilder().AppendLine();
             var allCompanies = Registrars.Get<Company>().All();
 
-            foreach (var cCompany in allCompanies)
-            {
-                sb.AppendLineLoc($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()} with HQ at {cCompany.HQDeed.UILink()}");
-            }
+            if (!allCompanies.Any()) { return; }
 
-            if (!allCompanies.Any())
-            {
-                user.OkBoxLoc($"No companies found...");
-                return;
-            }
+            foreach (var cCompany in allCompanies) { sb.AppendLineLoc($"{cCompany.UILink()} managed by {cCompany.Ceo.UILinkNullSafe()} with HQ at {cCompany.HQDeed.UILink()}"); }
 
             user.Msg(sb.ToLocString());
         }
+
+        [ChatSubCommand("Company", "Provides dev-only function to init all play times for company legal persons", ChatAuthorizationLevel.DevTier)]
+        public async static void InitPlayTimes(User user)
+        {
+            var allCompanies = Registrars.Get<Company>().All();
+            if (!allCompanies.Any()) { return; }
+
+            if(await user.Player.ConfirmBoxLoc($"Are you sure to reset all companies playtime to default? This can reset {DemographicManager.Abandoned.UILinkNullSafe()} to {DemographicManager.Active.UILinkNullSafe()}!"))
+            {
+                foreach (var cCompany in allCompanies) { cCompany.InitPlayTime(); }
+
+                user.MsgLoc($"Done.");
+            }
+        }
+
+        /*
+        [ChatSubCommand("Company", "Edits the selected company owned deed", ChatAuthorizationLevel.User)]
+        public static void EditDeed(User user)
+        {
+            var currentEmployer = Companies.Company.GetEmployer(user);
+            if (currentEmployer == null)
+            {
+                user.OkBoxLoc($"Couldn't edit any deeds as you're not currently employed");
+                return;
+            }
+
+            if (user.Player == null) { return; }
+
+            var deedList = currentEmployer.OwnedDeeds.Where(x => !x.IsVehicleDeed && x != currentEmployer.HQDeed);
+            if (deedList.Count() > 0)
+            {
+                var task = user.Player?.PopupSelectFromOptions(
+                    Localizer.Do($"Choose deed to edit"), Localizer.DoStr("Deed"), LocString.Empty,
+                    deedList, null, Shared.UI.MultiSelectorPopUpFlags.None,
+                    Localizer.Do($"This list shows company deeds you can edit.")
+                );
+
+                task.ContinueWith(x => DeedEditingUtil.EditInMap(x.Result.FirstOrDefault() as Deed, user));
+                return;
+            }
+
+            user.OkBoxLoc($"{currentEmployer.UILinkNullSafe()} does not own any deeds that can be rented and {currentEmployer.HQDeed.UILinkNullSafe()} can't be used for renting as it is the HQ.");
+        }
+        */
 
         /*[ChatSubCommand("Company", "Edits the company owned deed that you're currently standing in.", ChatAuthorizationLevel.User)]
         public static void EditDeed(User user)
