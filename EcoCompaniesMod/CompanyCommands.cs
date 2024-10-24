@@ -17,7 +17,7 @@ namespace Eco.Mods.Companies
     using Gameplay.Property;
     using Gameplay.UI;
     using Gameplay.Systems.NewTooltip;
-    using Eco.Gameplay.Civics.Demographics;
+    using Gameplay.Civics.Demographics;
 
     [ChatCommandHandler]
     public static class CompanyCommands
