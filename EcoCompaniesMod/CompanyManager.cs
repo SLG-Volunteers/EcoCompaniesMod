@@ -199,6 +199,9 @@ namespace Eco.Mods.Companies
                 {
                     case GameActions.CompanyExpense:
                     case GameActions.CompanyIncome:
+                    case GameActions.CompanyEmployeeExpense:
+                    case GameActions.CompanyEmployeeIncome:
+                    case GameActions.CompanyEmployeeWealthChanged:
                         // Catch these specifically and noop, to avoid them going into the MoneyGameAction case
                         break;
                     case MoneyGameAction moneyGameAction:

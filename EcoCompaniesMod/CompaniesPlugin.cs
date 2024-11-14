@@ -130,6 +130,7 @@ namespace Eco.Mods.Companies
     {
         private bool ignoreBankAccountPermissionsChanged = false;
         public const int TaskDelay = 250;
+        public const int TaskDelayLong = 1000;
         public const double DailyPlayTime = (TimeUtil.SecondsPerMinute * 5);
 
         public IPluginConfig PluginConfig => config;
@@ -165,6 +166,8 @@ namespace Eco.Mods.Companies
 
             InstallLawManagerHack();
             InstallGameValueHack();
+
+            BankAccount.CurrencyHoldingsChangedEvent.Add(OnCurrencyHoldingsChanged);
             BankAccount.PermissionsChangedEvent.Add(OnBankAccountPermissionsChanged);
             GameData.Obj.VoidStorageManager.VoidStorages.Callbacks.OnAdd.Add(OnVoidStorageAdded);
             PropertyManager.DeedDestroyedEvent.Add(OnDeedDestroyed);
@@ -183,6 +186,11 @@ namespace Eco.Mods.Companies
             var userEmployer = Company.GetEmployer(user);
             userEmployer?.UpdateOnlineState();
 
+        }
+
+        private void OnCurrencyHoldingsChanged(BankAccount bankAccount)
+        {
+            Company.GetEmployer(bankAccount.AccountOwner)?.OnEmployeeWealthChange(bankAccount);
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)

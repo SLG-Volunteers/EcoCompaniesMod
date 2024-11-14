@@ -159,6 +159,7 @@ namespace Eco.Mods.Companies
             {
                 LegalPerson = TestUtils.MakeTestUser(Registrars.Get<User>().GetUniqueName(CompanyManager.GetLegalPersonName(Name)));
                 LegalPerson.Initialize();
+                LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null); // last logout NOW
             }
             SettlementCommon.Initializer.RunIfOrWhenInitialized(() =>
             {
@@ -739,7 +740,7 @@ namespace Eco.Mods.Companies
 
         public void UpdateOnlineState()
         {
-            if(AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legel person to now if all employees logged out
+            if(AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legal person to now if all employees logged out
             {
                 LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
                 LegalPerson.MarkDirty();
@@ -756,7 +757,6 @@ namespace Eco.Mods.Companies
                 var timeSpan = new Range((float)WorldTime.Seconds - (float)CompaniesPlugin.DailyPlayTime, (float)WorldTime.Seconds);
                 LegalPerson.OnlineTimeLog.Active.Add(timeSpan);
                 LegalPerson.MarkDirty();
-                CivicsData.Obj.UpdateTimer.SetToTriggerNextTick();
             }
         }
 
@@ -774,7 +774,6 @@ namespace Eco.Mods.Companies
             }
 
             LegalPerson.MarkDirty();
-            CivicsData.Obj.UpdateTimer.SetToTriggerNextTick();
         }
 
         public void OnReceiveMoney(MoneyGameAction moneyGameAction)
@@ -798,6 +797,21 @@ namespace Eco.Mods.Companies
             {
                 inReceiveMoney = false;
             }
+        }
+
+        public void OnEmployeeWealthChange(BankAccount bankAccount)
+        {
+            Task.Delay(CompaniesPlugin.TaskDelayLong).ContinueWith(t =>
+            {
+                Logger.Debug($"WealthChangedEventAction {bankAccount.Name} {LegalPerson.Name}");
+                var pack = new GameActionPack();
+                pack.AddGameAction(new GameActions.CompanyEmployeeWealthChanged
+                {
+                    TargetBankAccount = bankAccount,
+                    AffectedCitizen = bankAccount.AccountOwner,
+                });
+                pack.TryPerform(null);
+            });
         }
 
         public void OnEmployeeReceiveMoney(MoneyGameAction moneyGameAction)
