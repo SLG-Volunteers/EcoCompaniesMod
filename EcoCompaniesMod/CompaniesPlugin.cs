@@ -44,7 +44,7 @@ namespace Eco.Mods.Companies
     [Localized]
     public class CompaniesConfig
     {
-        [LocDescription("If enabled, employees may not have homestead deeds, and the company gets a HQ homestead deed that grows based on employee count."), Category("Property")]
+        [LocDescription("If enabled, employees may not have homestead deeds and holdings, and the company gets a HQ homestead deed that grows based on employee count."), Category("Property")]
         public bool PropertyLimitsEnabled { get; set; } = true;
 
         [LocDescription("If enabled, the legal person of a company can't receive reputation (this does not include the 'ReputationAverages')."), Category("Reputation")]
