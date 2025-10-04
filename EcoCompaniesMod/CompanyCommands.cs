@@ -18,6 +18,7 @@ namespace Eco.Mods.Companies
     using Gameplay.UI;
     using Gameplay.Systems.NewTooltip;
     using Gameplay.Civics.Demographics;
+    using Shared.Math;
 
     [ChatCommandHandler]
     public static class CompanyCommands
@@ -371,6 +372,19 @@ namespace Eco.Mods.Companies
             }
         }
 
+        [ChatSubCommand("Company", "Sends an update for the company markers to all employees.", ChatAuthorizationLevel.User)]
+        public static void UpdateMarkers(User user)
+        {
+            var currentEmployer = Companies.Company.GetEmployer(user);
+            if (currentEmployer != null && user != currentEmployer.Ceo)
+            {
+                user.MsgLoc($"Couldn't send markers as you are not a CEO of the company!");
+                return;
+            }
+
+            currentEmployer?.RefreshCompanyMarkers();
+        }
+        
         [ChatSubCommand("Company", "Provides admin-only options for company mod settings.", ChatAuthorizationLevel.Admin)]
         public static void Configure(User user, string verb, bool newState)
         {
@@ -434,12 +448,12 @@ namespace Eco.Mods.Companies
 
                     break;
                 default:
-                    user.MsgLoc($"Valid verbs are 'employ', 'fire', 'demote','promote', 'invite' or 'uninvite'.");
+                    user.MsgLoc($"Valid verbs are 'employ', 'fire', 'demote', 'promote', 'invite' or 'uninvite'.");
                     break;
             }
         }
 
-        [ChatSubCommand("Company", "Provides admin-only list of all companies and their employees", ChatAuthorizationLevel.Admin)]
+        [ChatSubCommand("Company", "Provides a list of all companies", ChatAuthorizationLevel.User)]
         public static void List(User user)
         {
             var sb = new LocStringBuilder().AppendLine();
@@ -452,13 +466,13 @@ namespace Eco.Mods.Companies
             user.Msg(sb.ToLocString());
         }
 
-        [ChatSubCommand("Company", "Provides dev-only function to init all play times for company legal persons", ChatAuthorizationLevel.DevTier)]
+        [ChatSubCommand("Company", "Provides admin-only function to init all play times for company legal persons", ChatAuthorizationLevel.Admin)]
         public async static void InitPlayTimes(User user)
         {
             var allCompanies = Registrars.Get<Company>().All();
             if (!allCompanies.Any()) { return; }
 
-            if(await user.Player.ConfirmBoxLoc($"Are you sure to reset all companies playtime to default? This can reset {DemographicManager.Abandoned.UILinkNullSafe()} to {DemographicManager.Active.UILinkNullSafe()}!"))
+            if(await user.Player.ConfirmBoxLoc($"Are you sure to reset all playtimes to default? This can reset {DemographicManager.Abandoned.UILinkNullSafe()} to {DemographicManager.Active.UILinkNullSafe()}!"))
             {
                 foreach (var cCompany in allCompanies) { cCompany.InitPlayTime(); }
 
@@ -466,37 +480,21 @@ namespace Eco.Mods.Companies
             }
         }
 
-        /*
-        [ChatSubCommand("Company", "Edits the selected company owned deed", ChatAuthorizationLevel.User)]
-        public static void EditDeed(User user)
+        [ChatSubCommand("Company", "Provides admin-only function to recalculate all reputations", ChatAuthorizationLevel.Admin)]
+        public async static void UpdateReputation(User user)
         {
-            var currentEmployer = Companies.Company.GetEmployer(user);
-            if (currentEmployer == null)
+            var allCompanies = Registrars.Get<Company>().All();
+            if (!allCompanies.Any()) { return; }
+
+            if (await user.Player.ConfirmBoxLoc($"Are you sure to recalculate all reputations?"))
             {
-                user.OkBoxLoc($"Couldn't edit any deeds as you're not currently employed");
-                return;
+                foreach (var cCompany in allCompanies) { cCompany.UpdateLegalPersonReputation(); }
+
+                user.MsgLoc($"Done.");
             }
-
-            if (user.Player == null) { return; }
-
-            var deedList = currentEmployer.OwnedDeeds.Where(x => !x.IsVehicleDeed && x != currentEmployer.HQDeed);
-            if (deedList.Count() > 0)
-            {
-                var task = user.Player?.PopupSelectFromOptions(
-                    Localizer.Do($"Choose deed to edit"), Localizer.DoStr("Deed"), LocString.Empty,
-                    deedList, null, Shared.UI.MultiSelectorPopUpFlags.None,
-                    Localizer.Do($"This list shows company deeds you can edit.")
-                );
-
-                task.ContinueWith(x => DeedEditingUtil.EditInMap(x.Result.FirstOrDefault() as Deed, user));
-                return;
-            }
-
-            user.OkBoxLoc($"{currentEmployer.UILinkNullSafe()} does not own any deeds that can be rented and {currentEmployer.HQDeed.UILinkNullSafe()} can't be used for renting as it is the HQ.");
         }
-        */
 
-        /*[ChatSubCommand("Company", "Edits the company owned deed that you're currently standing in.", ChatAuthorizationLevel.User)]
+       [ChatSubCommand("Company", "Edits the company owned deed that you're currently standing in.", ChatAuthorizationLevel.User)]
         public static void EditDeed(User user)
         {
             var company = Companies.Company.GetEmployer(user);
@@ -505,18 +503,21 @@ namespace Eco.Mods.Companies
                 user.Player?.OkBoxLoc($"Couldn't edit company deed as you're not currently employed");
                 return;
             }
+
             var deed = PropertyManager.GetDeedWorldPos(new Vector2i((int)user.Position.X, (int)user.Position.Z));
             if (deed == null)
             {
                 user.Player?.OkBoxLoc($"Couldn't edit company deed as you're not standing on one");
                 return;
             }
+
             if (!company.OwnedDeeds.Contains(deed))
             {
                 user.Player?.OkBoxLoc($"Couldn't edit company deed as it's not owned by {company.MarkedUpName}");
                 return;
             }
+
             DeedEditingUtil.EditInMap(deed, user);
-        }*/
+        }
     }
 }

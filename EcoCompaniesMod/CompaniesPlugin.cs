@@ -40,12 +40,16 @@ namespace Eco.Mods.Companies
     using Gameplay.Property;
 
     using Simulation.Time;
+    using Gameplay.Settlements;
 
     [Localized]
     public class CompaniesConfig
     {
         [LocDescription("If enabled, employees may not have homestead deeds and holdings, and the company gets a HQ homestead deed that grows based on employee count."), Category("Property")]
         public bool PropertyLimitsEnabled { get; set; } = true;
+
+        [LocDescription("If set, those currencies will be force transfered to the company bank account. Needs property limits enabled at all."), Category("Property")]
+        public List<string> PrivatePropertyBanCurrencies { get; set; } = [];
 
         [LocDescription("If enabled, the legal person of a company can't receive reputation (this does not include the 'ReputationAverages')."), Category("Reputation")]
         public bool DenyLegalPersonReputationEnabled { get; set; } = false;
@@ -67,6 +71,24 @@ namespace Eco.Mods.Companies
 
         [LocDescription("If enabled, the company name instead of the legal persons name will be used for naming (shorter)"), Category("Property")]
         public bool VehicleTransfersUseCompanyNameEnabled { get; set; } = true;
+
+        [LocDescription("Enabled the configured base claims from `BaseClaimPerEmployee` instead of the server setting"), Category("Property")]
+        public bool UseBaseClaimsPerEmployee { get; set; } = false;
+
+        [LocDescription("This will override the base claims for the company hq (employee count => amount of claims per employee) when property limits are enabled"), Category("Property")]
+        public SortedDictionary<int, int> BaseClaimsPerEmployee { get; set; } = new() { 
+            [1] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake, 
+            [2] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake,
+            [3] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * 60 / 100,
+            [5] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * 25 / 100,
+            [6] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * 10 / 100
+        };
+
+        [LocDescription("If enabled, every company will get a own channel (editable by admins) as the name is limited to 13 characters it uses the id as internal name and chattab is generic..."), Category("Chat")]
+        public bool CompanyChannelEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, every company channel will be enforced to be open for the user."), Category("Chat")]
+        public bool CompanyChannelForceVisableEnabled { get; set; } = false;
     }
 
     [Serialized]
@@ -117,6 +139,7 @@ namespace Eco.Mods.Companies
                     CompanyManager.Obj.InterceptTradeAction(tradeAction, ref result);
                     break;
             }
+
             return result;
         }
 
@@ -190,7 +213,12 @@ namespace Eco.Mods.Companies
 
         private void OnCurrencyHoldingsChanged(BankAccount bankAccount)
         {
-            Company.GetEmployer(bankAccount.AccountOwner)?.OnEmployeeWealthChange(bankAccount);
+           var company = Company.GetEmployer(bankAccount.AccountOwner);
+           if(company != null && bankAccount is not GovernmentBankAccount a)
+           {
+                Logger.Debug($"{company.Name} -> {bankAccount.Name} ({bankAccount.AccountOwner.Name}) changed");
+                company.OnEmployeeCurrencyHoldingsChanged(bankAccount);
+           }
         }
 
         private void OnBankAccountPermissionsChanged(BankAccount bankAccount)

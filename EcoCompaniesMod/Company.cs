@@ -7,44 +7,47 @@ using System.Threading.Tasks;
 
 namespace Eco.Mods.Companies
 {
+    using Companies.GameActions;
     using Core.Controller;
+    using Core.Properties;
+    using Core.PropertyHandling;
+    using Core.Serialization;
     using Core.Systems;
     using Core.Utils;
-    using Core.Properties;
-    using Core.Serialization;
-    using Core.PropertyHandling;
-
-    using Gameplay.Utils;
-    using Gameplay.Players;
-    using Gameplay.Systems.TextLinks;
-    using Gameplay.Systems.Messaging.Notifications;
-    using Gameplay.Systems.NewTooltip;
-    using Gameplay.Items;
-    using Gameplay.Items.InventoryRelated;
+    using Gameplay.Aliases;
+    using Gameplay.Civics.GameValues;
+    using Gameplay.Components;
     using Gameplay.Economy;
     using Gameplay.Economy.Reputation;
     using Gameplay.Economy.Reputation.Internal;
+    using Gameplay.Economy.Transfer.Internal;
     using Gameplay.GameActions;
-    using Gameplay.Aliases;
+    using Gameplay.Items;
+    using Gameplay.Items.InventoryRelated;
+    using Gameplay.Objects;
+    using Gameplay.Players;
     using Gameplay.Property;
-    using Gameplay.Civics.GameValues;
     using Gameplay.Settlements;
     using Gameplay.Settlements.Components;
-    using Gameplay.Components;
-    using Gameplay.Objects;
-    using Gameplay.UI;
     using Gameplay.Systems;
-
-    using Simulation.Time;
-    using Shared.Serialization;
-    using Shared.Localization;
-    using Shared.Services;
-    using Shared.Items;
+    using Gameplay.Systems.Messaging.Chat;
+    using Gameplay.Systems.Messaging.Chat.Channels;
+    using Gameplay.Systems.Messaging.Notifications;
+    using Gameplay.Systems.NewTooltip;
+    using Gameplay.Systems.TextLinks;
+    using Gameplay.UI;
+    using Gameplay.UI.WorldMarker;
+    using Gameplay.Utils;
     using Shared.IoC;
-    using Shared.Utils;
+    using Shared.Items;
+    using Shared.Localization;
     using Shared.Math;
+    using Shared.Serialization;
+    using Shared.Services;
     using Shared.Time;
-    using Gameplay.Civics;
+    using Shared.Utils;
+    using Simulation.Time;
+    using System.Security.Principal;
 
     public readonly struct ShareholderHolding
     {
@@ -63,7 +66,7 @@ namespace Eco.Mods.Companies
     [Serialized, ForceCreateView]
     public class Company : SimpleEntry, IHasIcon
     {
-        private bool inReceiveMoney, inEmployeeReceiveMoney, inGiveMoney, inEmployeeGiveMoney, ignoreOwnerChanged;
+        private bool inReceiveMoney, inGiveMoney, inPrivatePropertyBan,ignoreOwnerChanged;
 
         public static bool IsInvited(User user, Company company)
             => company.InviteList.Contains(user);
@@ -117,7 +120,7 @@ namespace Eco.Mods.Companies
             }
         }
 
-        public int HQSize => ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * (CompaniesPlugin.Obj.Config.PropertyLimitsEnabled ? AllEmployees.Count() : 1);
+        public int HQSize => GetModdedBaseClaims();
 
         public Settlement DirectCitizenship => LegalPerson.DirectCitizenship;
 
@@ -144,6 +147,29 @@ namespace Eco.Mods.Companies
 
         public IEnumerable<ShareholderHolding> Shareholders =>
             Ceo != null ? Enumerable.Repeat(new ShareholderHolding(Ceo, 1.0f), 1) : Enumerable.Empty<ShareholderHolding>();
+
+        private Channel CompanyChannel;
+
+
+        public int GetModdedBaseClaims() {
+            if(!CompaniesPlugin.Obj.Config.PropertyLimitsEnabled || !CompaniesPlugin.Obj.Config.UseBaseClaimsPerEmployee) {
+                return ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * (CompaniesPlugin.Obj.Config.PropertyLimitsEnabled ? AllEmployees.Count() : 1);
+            }
+
+            int bestMatch = int.MinValue;
+            int searchValue = AllEmployees.Count();
+
+            foreach (int key in CompaniesPlugin.Obj.Config.BaseClaimsPerEmployee.Keys)
+            {
+                if (key > searchValue) break;
+                bestMatch = key;
+            }
+
+            bestMatch = (bestMatch != int.MinValue) ? CompaniesPlugin.Obj.Config.BaseClaimsPerEmployee[bestMatch] : ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake;
+            bestMatch *= AllEmployees.Count();
+
+            return bestMatch;
+        }
 
         public override void Initialize()
         {
@@ -195,6 +221,8 @@ namespace Eco.Mods.Companies
         public void OnPostInitialized()
         {
             RefreshHQPlotsSize();
+            RefreshCompanyChannel();
+            RefreshCompanyMarkers();
 
             // Fix the homestead claim stake if placed on older version
             if (LegalPerson.HomesteadDeed != null && LegalPerson.HomesteadDeed.Creator != LegalPerson)
@@ -209,7 +237,6 @@ namespace Eco.Mods.Companies
             => bankAccount == BankAccount || (bankAccount is not PersonalBankAccount && bankAccount is not GovernmentBankAccount && bankAccount.DualPermissions.CanAccess(LegalPerson, AccountAccess.Manage));
 
         #region Employee Management
-
         public bool TryInvite(User invoker, User target, out LocString errorMessage)
         {
             if (invoker != Ceo)
@@ -227,6 +254,7 @@ namespace Eco.Mods.Companies
                 errorMessage = Localizer.DoStr($"Couldn't invite {target.MarkedUpName} to {MarkedUpName} as they are already an employee");
                 return false;
             }
+
             InviteList.Add(target);
             OnInviteListChanged();
             MarkPerUserTooltipDirty(target);
@@ -280,7 +308,7 @@ namespace Eco.Mods.Companies
                 return false;
             }
             var pack = new GameActionPack();
-            pack.AddGameAction(new GameActions.CitizenLeaveCompany
+            pack.AddGameAction(new CitizenLeaveCompany
             {
                 Citizen = target,
                 CompanyLegalPerson = LegalPerson,
@@ -288,10 +316,13 @@ namespace Eco.Mods.Companies
             });
             pack.AddPostEffect(() =>
             {
+                int currentBaseClaims = GetModdedBaseClaims() / AllEmployees.Count();
                 if (!Employees.Remove(target)) { return; }
+                RemoveEmployee(target);
                 OnEmployeesChanged();
                 MarkPerUserTooltipDirty(target);
                 SendCompanyMessage(Localizer.Do($"{invoker.UILinkNullSafe()} has fired {target.UILink()} from the company."));
+                SendUpdatedBaseClaims(currentBaseClaims, target);
             });
 
             var actionMessage = pack.TryPerform(null);
@@ -318,18 +349,21 @@ namespace Eco.Mods.Companies
                 return false;
             }
             var pack = new GameActionPack();
-            pack.AddGameAction(new GameActions.CitizenJoinCompany
+            pack.AddGameAction(new CitizenJoinCompany
             {
                 Citizen = user,
                 CompanyLegalPerson = LegalPerson,
             });
             pack.AddPostEffect(() =>
             {
+                int currentBaseClaims = GetModdedBaseClaims() / AllEmployees.Count();
                 if (!InviteList.Remove(user)) { return; }
                 if (!Employees.Add(user)) { return; }
                 OnEmployeesChanged();
+                ForceCompanyChannelVisible(user);
                 MarkPerUserTooltipDirty(user);
                 SendCompanyMessage(Localizer.Do($"{user.UILink()} has joined the company."));
+                SendUpdatedBaseClaims(currentBaseClaims, user);
             });
 
             var actionMessage = pack.TryPerform(null);
@@ -340,13 +374,14 @@ namespace Eco.Mods.Companies
         public void ForceJoin(User user)
         {
             if (AllEmployees.Contains(user)) { return; }
-
             GetEmployer(user)?.ForceLeave(user);
+            int currentBaseClaims = GetModdedBaseClaims() / AllEmployees.Count();
             if (!Employees.Add(user)) { return; }
             InviteList.Remove(user);
             OnEmployeesChanged();
             MarkPerUserTooltipDirty(user);
             SendCompanyMessage(Localizer.Do($"{user.UILink()} has joined the company."));
+            SendUpdatedBaseClaims(currentBaseClaims, user);
         }
 
         public bool TryLeave(User user, out LocString errorMessage)
@@ -362,7 +397,7 @@ namespace Eco.Mods.Companies
                 return false;
             }
             var pack = new GameActionPack();
-            pack.AddGameAction(new GameActions.CitizenLeaveCompany
+            pack.AddGameAction(new CitizenLeaveCompany
             {
                 Citizen = user,
                 CompanyLegalPerson = LegalPerson,
@@ -370,10 +405,13 @@ namespace Eco.Mods.Companies
             });
             pack.AddPostEffect(() =>
             {
+                int currentBaseClaims = GetModdedBaseClaims() / AllEmployees.Count();
                 if (!Employees.Remove(user)) { return; }
+                RemoveEmployee(user);
                 OnEmployeesChanged();
                 MarkPerUserTooltipDirty(user);
                 SendCompanyMessage(Localizer.Do($"{user.UILink()} has resigned from the company."));
+                SendUpdatedBaseClaims(currentBaseClaims, user);
             });
 
             var actionMessage = pack.TryPerform(null);
@@ -384,10 +422,13 @@ namespace Eco.Mods.Companies
         public void ForceLeave(User user)
         {
             if (user == Ceo) { return; }
+            int currentBaseClaims = GetModdedBaseClaims() / AllEmployees.Count();
             if (!Employees.Remove(user)) { return; }
+            RemoveEmployee(user);
             OnEmployeesChanged();
             MarkPerUserTooltipDirty(user);
             SendCompanyMessage(Localizer.Do($"{user.UILink()} has been ejected from the company."));
+            SendUpdatedBaseClaims(currentBaseClaims, user);
         }
 
         #endregion
@@ -546,7 +587,7 @@ namespace Eco.Mods.Companies
             if (ev.Before is not IAlias oldOwner) { return; }
             if (ev.After is not IAlias newOwner) { return; }
 
-            Logger.Debug($"Deed {deed} (for {Name}) changed owner from {oldOwner.Name} to {newOwner.Name}");
+            // Logger.Debug($"Deed {deed} (for {Name}) changed owner from {oldOwner.Name} to {newOwner.Name}");
             if (oldOwner.ContainsUser(LegalPerson) && !newOwner.ContainsUser(LegalPerson))
             {
                 OnNoLongerOwnerOfProperty(deed);
@@ -581,7 +622,7 @@ namespace Eco.Mods.Companies
                     Logger.Error($"Failed to find method PlotsComponent.UpdateClaimData via reflection");
                     return;
                 }
-                claimsUpdatedMethod.Invoke(plots, new object[] { null });
+                claimsUpdatedMethod.Invoke(plots, [null]);
             }
         }
 
@@ -592,7 +633,79 @@ namespace Eco.Mods.Companies
             AddBasePlotsOverride(hqPlots);
         }
 
-        private int GetModdedBaseClaims() => HQSize;
+        public void RefreshCompanyMarkers()
+        {
+            var allCompanyMarkers = Ceo.Markers.AllMarkers
+                .Where(m => m.FolderStructure == "Company")
+                .Distinct()
+                .ToList();
+
+            Logger.Debug($"Refreshing company markers for {Name} - found {allCompanyMarkers.Count} markers.");
+            foreach (var employee in AllEmployees.Where(x => x != Ceo))
+            {
+                employee.Markers.RemoveAll(m => m.FolderStructure == "Company");
+                foreach (var marker in allCompanyMarkers)
+                {
+                    var newMarker = employee.Markers.Add(
+                        employee,
+                        marker.Pos,
+                        marker.DisplayName,
+                        true,
+                        false,
+                        MarkerFolderName.None
+                    );
+
+                    newMarker.SetUserDefinedFolderStructure(employee.Player, "Company");
+                }
+            }
+        }
+
+        public void RefreshCompanyChannel()
+        { 
+            if (CompaniesPlugin.Obj.Config.CompanyChannelEnabled)
+            {
+                var isNewChannel = false;
+                var channelName = $"ZC-{Id}";
+                CompanyChannel = ChannelManager.Obj.Registrar.GetByName(channelName);
+
+                if (CompanyChannel == null)
+                {
+                    CompanyChannel = new Channel
+                    {
+                        Name = channelName,
+                        Creator = LegalPerson,
+                        UserDescription = $"{Name} Company Chat"
+                    };
+
+                    // CompanyChannel.Managers.Add(DemographicManager.Obj.Get(SpecialDemographics.Admins));
+                    CompanyChannel.Managers.Add(LegalPerson);
+                    ChannelManager.Obj.Registrar.Insert(CompanyChannel);
+
+                    CompanyChannel.MarkDirty();
+                    isNewChannel = true;
+
+                }
+
+                UpdateCompanyChannelUsers(isNewChannel);
+            }
+        }
+
+        public void UpdateCompanyChannelUsers(bool forceVisible = false)
+        {
+            if (!CompaniesPlugin.Obj.Config.CompanyChannelEnabled || CompanyChannel == null) { return; }
+
+            CompanyChannel.Users.Clear();
+            CompanyChannel.Users.Add(LegalPerson);
+
+            foreach (var user in AllEmployees)
+            {
+                CompanyChannel.Users.Add(user);
+                if (CompaniesPlugin.Obj.Config.CompanyChannelForceVisableEnabled || forceVisible)
+                {
+                    ForceCompanyChannelVisible(user);
+                }
+            }
+        }
 
         private static readonly PropertyInfo worldObjectCreator = typeof(WorldObject).GetProperty("Creator", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo worldObjectUpdateOwnerName = typeof(WorldObject).GetMethod("UpdateOwnerName", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -618,7 +731,7 @@ namespace Eco.Mods.Companies
         {
             if(ignoreOwnerChanged) return;
 
-            Logger.Debug($"'{Name}' is now owner of property '{deed.Name}'");
+            // Logger.Debug($"'{Name}' is now owner of property '{deed.Name}'");
             this.WatchProp(deed, nameof(Deed.Owner), OnDeedOwnerChanged);
             if (deed.IsHomesteadDeed)
             {
@@ -691,7 +804,7 @@ namespace Eco.Mods.Companies
         {
             if (ignoreOwnerChanged) return;
 
-            Logger.Debug($"'{Name}' is no longer owner of property '{deed.Name}'");
+            // Logger.Debug($"'{Name}' is no longer owner of property '{deed.Name}'");
 
             this.Unwatch(deed);
             if (deed == HQDeed)
@@ -738,14 +851,16 @@ namespace Eco.Mods.Companies
 
         #endregion
 
+
         public void UpdateOnlineState()
         {
-            if(AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legal person to now if all employees logged out
+
+            if (AllEmployees.Where(x => x.IsOnline).Count() == 0) // set the last online time for legal person to now if all employees logged out
             {
                 LegalPerson.GetType().GetProperty("LogoutTime").SetValue(LegalPerson, WorldTime.Seconds, null);
                 LegalPerson.MarkDirty();
 
-                UpdatePlayTime();
+                UpdatePlayTime(); 
 
             }
         }
@@ -783,7 +898,7 @@ namespace Eco.Mods.Companies
             try
             {
                 var pack = new GameActionPack();
-                pack.AddGameAction(new GameActions.CompanyIncome
+                pack.AddGameAction(new CompanyIncome
                 {
                     SourceBankAccount = moneyGameAction.SourceBankAccount,
                     TargetBankAccount = moneyGameAction.TargetBankAccount,
@@ -799,43 +914,57 @@ namespace Eco.Mods.Companies
             }
         }
 
-        public void OnEmployeeWealthChange(BankAccount bankAccount)
+        public void OnEmployeeCurrencyHoldingsChanged(BankAccount affectedBankAccount)
         {
-            Task.Delay(CompaniesPlugin.TaskDelayLong).ContinueWith(t =>
+            if (CompaniesPlugin.Obj.Config.PropertyLimitsEnabled && CompaniesPlugin.Obj.Config.PrivatePropertyBanCurrencies.Count > 0 && affectedBankAccount != LegalPerson.BankAccount)
             {
-                Logger.Debug($"WealthChangedEventAction {bankAccount.Name} {LegalPerson.Name}");
-                var pack = new GameActionPack();
-                pack.AddGameAction(new GameActions.CompanyEmployeeWealthChanged
+                if (inPrivatePropertyBan) { return; }
+                inPrivatePropertyBan = true;
+
+                Logger.Debug($"PPB checking {affectedBankAccount.Name}");
+                try
                 {
-                    TargetBankAccount = bankAccount,
-                    AffectedCitizen = bankAccount.AccountOwner,
-                });
-                pack.TryPerform(null);
-            });
+                    Task.Delay(CompaniesPlugin.TaskDelayLong).ContinueWith(t =>
+                    {
+                        var pack = new GameActionPack();
+
+                        foreach (var currencyHolding in affectedBankAccount.CurrencyHoldings.Where(x => x.Value.Val > 0 && !x.Value.Currency.IsPlayerCredit && CompaniesPlugin.Obj.Config.PrivatePropertyBanCurrencies.Contains(x.Value.Currency.Name)))
+                        {
+                            Logger.Debug($"PPB transferring {affectedBankAccount.AccountOwner.Name}s {currencyHolding.Value.Val}{currencyHolding.Value.Currency.Name} to the company.");
+                            TransferInternalUtils.TransferInternal(
+                                pack,
+                                currencyHolding.Value.Val,
+                                currencyHolding.Value.Currency,
+                                affectedBankAccount,
+                                LegalPerson.BankAccount,
+                                affectedBankAccount.AccountOwner,
+                                Localizer.NotLocalizedStr($"Private Property Ban"),
+                                null
+                            );
+
+                            pack.AddGameAction(new PrivatePropertyBan
+                            {
+                                Currency = currencyHolding.Value.Currency,
+                                Citizen = affectedBankAccount.AccountOwner,
+                                CompanyLegalPerson = LegalPerson,
+                                CurrencyAmount = currencyHolding.Value.Val,
+                                TaxCode = "Private Property Ban"
+                            });
+                        }
+
+                        pack.TryPerform(null);
+                        inPrivatePropertyBan = false;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    inPrivatePropertyBan = false;
+                    Logger.Debug($"Could not PPB {affectedBankAccount.AccountOwner.Name} due to:");
+                    Logger.Debug(ex.Message);
+                }
+            }
         }
 
-        public void OnEmployeeReceiveMoney(MoneyGameAction moneyGameAction)
-        {
-            if (inEmployeeReceiveMoney) { return; }
-            inEmployeeReceiveMoney = true;
-            try
-            {
-                var pack = new GameActionPack();
-                pack.AddGameAction(new GameActions.CompanyEmployeeIncome
-                {
-                    SourceBankAccount = moneyGameAction.SourceBankAccount,
-                    TargetBankAccount = moneyGameAction.TargetBankAccount,
-                    Currency = moneyGameAction.Currency,
-                    CurrencyAmount = moneyGameAction.CurrencyAmount,
-                    ReceiverCitizen = moneyGameAction.TargetBankAccount.AccountOwner,
-                });
-                pack.TryPerform(null);
-            }
-            finally
-            {
-                inEmployeeReceiveMoney = false;
-            }
-        }
         public void OnGiveMoney(MoneyGameAction moneyGameAction)
         {
             if (inGiveMoney) { return; }
@@ -843,7 +972,7 @@ namespace Eco.Mods.Companies
             try
             {
                 var pack = new GameActionPack();
-                pack.AddGameAction(new GameActions.CompanyExpense
+                pack.AddGameAction(new CompanyExpense
                 {
                     SourceBankAccount = moneyGameAction.SourceBankAccount,
                     TargetBankAccount = moneyGameAction.TargetBankAccount,
@@ -856,30 +985,6 @@ namespace Eco.Mods.Companies
             finally
             {
                 inGiveMoney = false;
-            }
-        }
-
-
-        public void OnEmployeeGiveMoney(MoneyGameAction moneyGameAction)
-        {
-            if (inEmployeeGiveMoney) { return; }
-            inEmployeeGiveMoney = true;
-            try
-            {
-                var pack = new GameActionPack();
-                pack.AddGameAction(new GameActions.CompanyEmployeeExpense
-                {
-                    SourceBankAccount = moneyGameAction.SourceBankAccount,
-                    TargetBankAccount = moneyGameAction.TargetBankAccount,
-                    Currency = moneyGameAction.Currency,
-                    CurrencyAmount = moneyGameAction.CurrencyAmount,
-                    SendingCitizen = LegalPerson,
-                });
-                pack.TryPerform(null);
-            }
-            finally
-            {
-                inEmployeeGiveMoney = false;
             }
         }
 
@@ -901,6 +1006,14 @@ namespace Eco.Mods.Companies
             }
         }
 
+        public void RemoveEmployee(IAlias Employee)
+        {
+            foreach (var deed in OwnedDeeds)
+            {
+                deed.Accessors.Remove(Employee);
+            }
+            UpdateAllAuthLists();
+        }
 
         public void UpdateLegalPersonReputation()
         {
@@ -936,10 +1049,10 @@ namespace Eco.Mods.Companies
                     reputationCountPostive  += relativeReputation;
                     reputationCountNegative += negativeReputation;
 
-                    //Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {ignoredReputation} | {user.Name}");
+                    // Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {ignoredReputation} | {user.Name}");
                 }
 
-                //Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+                // Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
 
                 reputationCountPostive  = (reputationCountPostive != 0) ? reputationCountPostive / AllEmployees.Count() : reputationCountPostive;
                 reputationCountNegative = (reputationCountPostive != 0) ? reputationCountNegative / AllEmployees.Count() : reputationCountNegative;
@@ -1087,6 +1200,8 @@ namespace Eco.Mods.Companies
             UpdateLegalPersonReputation();
             UpdateAllVehicles();
             UpdateAllAuthLists();
+            RefreshCompanyChannel();
+            RefreshCompanyMarkers();
             RefreshHQPlotsSize();
             MarkDirty();
             MarkTooltipDirty();
@@ -1148,18 +1263,26 @@ namespace Eco.Mods.Companies
 
         private void UpdateDeedAuthList(Deed deed)
         {
-            deed.Accessors.Set(AllEmployees);
+            //deed.Accessors.Set(AllEmployees);
+            foreach (var _employee in AllEmployees) {
+                if (!deed.Accessors.Contains(_employee))
+                {
+                    deed.Accessors.Add(_employee);
+                }
+            }
+    
             if (deed == HQDeed)
             {
                 deed.Residency.Invitations.InvitationList.Set(AllEmployees.Where(x => !deed.Residency.Residents.Contains(x)));
                 deed.Residency.AllowPlotsUnclaiming = true;
             }
+            
             deed.MarkDirty();
         }
 
         public void UpdateBankAccountAuthList(BankAccount bankAccount)
         {
-            bankAccount.DualPermissions.ManagerSet.Set(Enumerable.Repeat(LegalPerson, 1));
+            bankAccount.DualPermissions.ManagerSet.Set(LegalPerson.SingleItemAsEnumerable());
             bankAccount.DualPermissions.UserSet.Set(AllEmployees);
             if (bankAccount != BankAccount) { MarkTooltipDirty(); }
         }
@@ -1222,6 +1345,15 @@ namespace Eco.Mods.Companies
             }
         }
 
+        public void SendUpdatedBaseClaims(int beforeBaseClaims, User affectedUser) { 
+            int currentBaseClaims = GetModdedBaseClaims() / AllEmployees.Count();
+            if (currentBaseClaims != beforeBaseClaims)
+            {
+                var headerLine = Text.Header(Text.Bold($"{this.UILink()} / Notice"));
+                SendCompanyMessage(Localizer.Do($"{headerLine}\n\n{affectedUser.UILinkNullSafe()} has joined or left the company.\n\nOld amount was {beforeBaseClaims} per employee\nNew amount is {currentBaseClaims} per employee\n\nPlease check your {HQDeed.UILinkNullSafe()} for a property crisis!"), NotificationCategory.Property, NotificationStyle.Mail);
+            }
+        }
+ 
         private static void SendGlobalMessage(LocString message)
         {
             NotificationManager.ServerMessageToAll(
@@ -1229,6 +1361,17 @@ namespace Eco.Mods.Companies
                 NotificationCategory.Government,
                 NotificationStyle.Chat
             );
+        }
+
+        private void ForceCompanyChannelVisible(User user)
+        {
+            var companyChatTab = GlobalData.Obj.ChatSettings(user).ChatTabSettings.OfType<ChatTabSettingsCommon>().FirstOrDefault(x => x.Channels.Contains(CompanyChannel));
+            if (companyChatTab == null)
+            {
+                companyChatTab = new ChatTabSettingsCommon("Company", CompanyChannel.SingleItemAsEnumerable(), null);
+                GlobalData.Obj.ChatSettings(user)?.ChatTabSettings.Add(companyChatTab);
+            }
+
         }
 
         public bool IsEmployee(User user)
@@ -1256,6 +1399,11 @@ namespace Eco.Mods.Companies
             sb.AppendLine(DirectCitizenship != null ? DirectCitizenship.UILink() : Localizer.DoStr("None.")); 
             sb.Append(TextLoc.HeaderLoc($"Company Legal Person: "));
             sb.AppendLine(LegalPerson != null ? LegalPerson.UILink() : Localizer.DoStr("None."));
+            if (CompaniesPlugin.Obj.Config.CompanyChannelEnabled)
+            {
+                sb.Append(TextLoc.HeaderLoc($"Company Channel: "));
+                sb.AppendLine(CompanyChannel.UILink());
+            }
             return sb.ToLocString();
         }
 

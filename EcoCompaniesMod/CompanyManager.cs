@@ -166,6 +166,7 @@ namespace Eco.Mods.Companies
             var company = Registrars.Add<Company>(null, latestCreateAttempt.CompanyName);
             company.Creator = latestCreateAttempt.CEO;
             company.ChangeCeo(latestCreateAttempt.CEO);
+            company.InitPlayTime();
             // TODO: Assign company citienzehip to CEO's federation
             company.SaveInRegistrar();
             if (latestCreateAttempt.TransferDeeds != null)
@@ -199,17 +200,16 @@ namespace Eco.Mods.Companies
                 {
                     case GameActions.CompanyExpense:
                     case GameActions.CompanyIncome:
-                    case GameActions.CompanyEmployeeExpense:
-                    case GameActions.CompanyEmployeeIncome:
-                    case GameActions.CompanyEmployeeWealthChanged:
                         // Catch these specifically and noop, to avoid them going into the MoneyGameAction case
                         break;
+                    /*
+                    case Play playGameAction
+                        Company.GetEmployer(playGameAction.Citizen)?.RefreshCompanyMarkers();
+                        break;
+                    */
                     case MoneyGameAction moneyGameAction:
                         Company.GetFromBankAccount(moneyGameAction.SourceBankAccount)?.OnGiveMoney(moneyGameAction);
-                        Company.GetEmployer(moneyGameAction.SourceBankAccount.AccountOwner)?.OnEmployeeGiveMoney(moneyGameAction);
-
                         Company.GetFromBankAccount(moneyGameAction.TargetBankAccount)?.OnReceiveMoney(moneyGameAction);
-                        Company.GetEmployer(moneyGameAction.TargetBankAccount.AccountOwner)?.OnEmployeeReceiveMoney(moneyGameAction);
                         break;
                 }
             }
@@ -256,14 +256,15 @@ namespace Eco.Mods.Companies
                     return LazyResult.FailedNoMessage;
             }
         }
-        public void InterceptTradeAction(TradeAction tradeActionData, ref PostResult lawPostResult)
+
+        public void InterceptTradeAction(TradeAction tradeActionData, ref PostResult actionPostResult)
         {
             var targetCompany = Company.GetFromLegalPerson(tradeActionData.ShopOwner);
             if(targetCompany != null)
             {
                 var boughtOrSold = tradeActionData.BoughtOrSold == BoughtOrSold.Selling ? "sold" : "bought";
 
-                lawPostResult.AddPostEffect(() =>
+                actionPostResult.AddPostEffect(() =>
                 {
                     targetCompany.SendCompanyMessage(Localizer.Do($"{targetCompany.UILinkNullSafe()}: {tradeActionData.Citizen.UILinkNullSafe()} {boughtOrSold} {tradeActionData.NumberOfItems} {tradeActionData.ItemUsed.UILinkNullSafe()} at {tradeActionData.WorldObject.UILinkNullSafe()}"), NotificationCategory.YourTrades);
                 });
@@ -385,7 +386,7 @@ namespace Eco.Mods.Companies
             if (employer.HasHQDeed)
             {
                 lawPostResult.MergeFailLoc($"Can't start a homestead when you're an employee of a company with a HQ");
-                Logger.Debug($"Preventing '{startHomestead.Citizen.Name}' from placing a homestead as their employer '{employer.Name}' already has a HQ '{employer.HQDeed.Name}'");
+                // Logger.Debug($"Preventing '{startHomestead.Citizen.Name}' from placing a homestead as their employer '{employer.Name}' already has a HQ '{employer.HQDeed.Name}'");
                 return;
             }
 
@@ -484,7 +485,7 @@ namespace Eco.Mods.Companies
                 if (!homesteadClaimStakeItem.IsUnique) { continue; }
                 if (homesteadClaimStakeItem.User != company.LegalPerson) { continue; }
                 homesteadClaimStakeItem.User = employee;
-                Logger.Debug($"Fixed up '{stack}' (homestead claim stake) to be keyed to '{employee.Name}' instead of {company.LegalPerson.Name}' after HQ deed was lifted");
+                // Logger.Debug($"Fixed up '{stack}' (homestead claim stake) to be keyed to '{employee.Name}' instead of {company.LegalPerson.Name}' after HQ deed was lifted");
             }
         }
 
