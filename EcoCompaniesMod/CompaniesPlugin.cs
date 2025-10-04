@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Linq;
+using System.Reflection;
+using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Reflection;
-using System.Collections.Generic;
+
 
 namespace Eco.Mods.Companies
 {
+    using Server;
     using Core.Plugins.Interfaces;
     using Core.Utils;
     using Core.Systems;
@@ -18,27 +21,84 @@ namespace Eco.Mods.Companies
     using Shared.Utils;
     using Shared.Serialization;
     using Shared.Networking;
-    using Shared.Services;
-    using Shared.Math;
+    using Shared.IoC;
+    using Shared.Time;
 
     using Gameplay.Players;
+    using Gameplay.Systems;
     using Gameplay.Systems.TextLinks;
     using Gameplay.Civics.GameValues;
+    using Gameplay.Civics.Laws;
     using Gameplay.Aliases;
+    using Gameplay.Items;
+    using Gameplay.Items.InventoryRelated;
+    using Gameplay.GameActions;
+    using Gameplay.Utils;
+    using Gameplay.Economy;
+    using Gameplay.Economy.Transfer;
+    using Gameplay.Settlements.Civics;
     using Gameplay.Property;
-    using Gameplay.Systems.Messaging.Chat.Commands;
-    using Gameplay.Systems.Messaging.Notifications;
 
     using Simulation.Time;
+    using Gameplay.Settlements;
+
+    [Localized]
+    public class CompaniesConfig
+    {
+        [LocDescription("If enabled, employees may not have homestead deeds and holdings, and the company gets a HQ homestead deed that grows based on employee count."), Category("Property")]
+        public bool PropertyLimitsEnabled { get; set; } = true;
+
+        [LocDescription("If set, those currencies will be force transfered to the company bank account. Needs property limits enabled at all."), Category("Property")]
+        public List<string> PrivatePropertyBanCurrencies { get; set; } = [];
+
+        [LocDescription("If enabled, the legal person of a company can't receive reputation (this does not include the 'ReputationAverages')."), Category("Reputation")]
+        public bool DenyLegalPersonReputationEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the company members can't receive reputation."), Category("Reputation")]
+        public bool DenyCompanyMembersExternalReputationEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the company members can't give reputation to each other nor the legal person (also counts for invited members)."), Category("Reputation")]
+        public bool DenyCompanyMembersReputationEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the average repuation from all employees will be given to the legal person (in addition to their own reputation if they have any)."), Category("Reputation")]
+        public bool ReputationAveragesEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the average repuation from all employees will be filtered by known bonussources (currently only SpeaksWellOfOthersBonus)."), Category("Reputation")]
+        public bool ReputationAveragesBonusEnabled { get; set; } = true;
+
+        [LocDescription("If enabled, the company vehicles will be adopted to the legal person on placement (need PropertyLimitesEnabled to be also enabled)."), Category("Property")]
+        public bool VehicleTransfersEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, the company name instead of the legal persons name will be used for naming (shorter)"), Category("Property")]
+        public bool VehicleTransfersUseCompanyNameEnabled { get; set; } = true;
+
+        [LocDescription("Enabled the configured base claims from `BaseClaimPerEmployee` instead of the server setting"), Category("Property")]
+        public bool UseBaseClaimsPerEmployee { get; set; } = false;
+
+        [LocDescription("This will override the base claims for the company hq (employee count => amount of claims per employee) when property limits are enabled"), Category("Property")]
+        public SortedDictionary<int, int> BaseClaimsPerEmployee { get; set; } = new() { 
+            [1] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake, 
+            [2] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake,
+            [3] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * 60 / 100,
+            [5] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * 25 / 100,
+            [6] = ServiceHolder<SettlementConfig>.Obj.BasePlotsOnHomesteadClaimStake * 10 / 100
+        };
+
+        [LocDescription("If enabled, every company will get a own channel (editable by admins) as the name is limited to 13 characters it uses the id as internal name and chattab is generic..."), Category("Chat")]
+        public bool CompanyChannelEnabled { get; set; } = false;
+
+        [LocDescription("If enabled, every company channel will be enforced to be open for the user."), Category("Chat")]
+        public bool CompanyChannelForceVisableEnabled { get; set; } = false;
+    }
 
     [Serialized]
     public class CompaniesData : Singleton<CompaniesData>, IStorage
     {
         public IPersistent StorageHandle { get; set; }
 
-        [Serialized] public Registrar<Company> Companies = new ();
+        [Serialized] public Registrar<Company> Companies = new();
 
-        public readonly PeriodicUpdateConfig UpdateTimer = new PeriodicUpdateConfig(true);
+        public readonly PeriodicUpdateConfig UpdateTimer = new(true);
 
         public void InitializeRegistrars()
         {
@@ -51,10 +111,57 @@ namespace Eco.Mods.Companies
         }
     }
 
-    [Localized, LocDisplayName(nameof(CompaniesPlugin)), Priority(PriorityAttribute.High)]
-    public class CompaniesPlugin : Singleton<CompaniesPlugin>, IModKitPlugin, IInitializablePlugin, ISaveablePlugin, IContainsRegistrars
+    [Eco]
+    internal class CompanyLawManager : ILawManager, IController, IHasClientControlledContainers
     {
-        private static readonly Dictionary<Type, GameValueType> gameValueTypeCache = new Dictionary<Type, GameValueType>();
+        private readonly LawManager internalLawManager;
+
+        public CompanyLawManager(LawManager internalLawManager)
+        {
+            this.internalLawManager = internalLawManager;
+        }
+
+        public PostResult Perform(GameAction action, AccountChangeSet acc)
+        {
+            var result = internalLawManager.Perform(action, acc);
+            switch (action)
+            {
+                case StartHomestead startHomesteadAction:
+                    CompanyManager.Obj.InterceptStartHomesteadGameAction(startHomesteadAction, ref result);
+                    break;
+                case PlaceOrPickUpObject placeOrPickupObjectAction:
+                    CompanyManager.Obj.InterceptPlaceOrPickupObjectGameAction(placeOrPickupObjectAction, ref result);
+                    break;
+                case ReputationTransfer reputationTransferAction: // intercepts new reputation actions
+                    CompanyManager.Obj.InterceptReputationTransfer(reputationTransferAction, ref result);
+                    break;
+                case TradeAction tradeAction:
+                    CompanyManager.Obj.InterceptTradeAction(tradeAction, ref result);
+                    break;
+            }
+
+            return result;
+        }
+
+        #region IController
+        public ref int ControllerID => ref internalLawManager.ControllerID;
+        #endregion
+    }
+
+    [Localized, LocDisplayName(nameof(CompaniesPlugin)), Priority(PriorityAttribute.High)]
+    public class CompaniesPlugin : Singleton<CompaniesPlugin>, IModKitPlugin, IConfigurablePlugin, IInitializablePlugin, ISaveablePlugin, IContainsRegistrars
+    {
+        private bool ignoreBankAccountPermissionsChanged = false;
+        public const int TaskDelay = 250;
+        public const int TaskDelayLong = 1000;
+        public const double DailyPlayTime = (TimeUtil.SecondsPerMinute * 5);
+
+        public IPluginConfig PluginConfig => config;
+
+        private PluginConfig<CompaniesConfig> config;
+        public CompaniesConfig Config => config.Config;
+
+        private static readonly Dictionary<Type, GameValueType> gameValueTypeCache = new();
 
         public readonly CompanyManager CompanyManager;
 
@@ -62,14 +169,109 @@ namespace Eco.Mods.Companies
 
         public CompaniesPlugin()
         {
+            config = new PluginConfig<CompaniesConfig>("Companies");
             data = StorageManager.LoadOrCreate<CompaniesData>("Companies");
             CompanyManager = new CompanyManager();
+        }
+
+        public object GetEditObject() => Config;
+        public ThreadSafeAction<object, string> ParamChanged { get; set; } = new ThreadSafeAction<object, string>();
+
+        public void OnEditObjectChanged(object o, string param)
+        {
+            this.SaveConfig();
         }
 
         public void Initialize(TimedTask timer)
         {
             data.Initialize();
+            Singleton<PluginManager>.Obj.InitComplete += OnPostInitialize;
+
+            InstallLawManagerHack();
             InstallGameValueHack();
+
+            BankAccount.CurrencyHoldingsChangedEvent.Add(OnCurrencyHoldingsChanged);
+            BankAccount.PermissionsChangedEvent.Add(OnBankAccountPermissionsChanged);
+            GameData.Obj.VoidStorageManager.VoidStorages.Callbacks.OnAdd.Add(OnVoidStorageAdded);
+            PropertyManager.DeedDestroyedEvent.Add(OnDeedDestroyed);
+            PropertyManager.DeedOwnerChangedEvent.Add(OnDeedOwnerChanged);
+            UserManager.OnUserLoggedOut.Add(OnUserLoggedOut);
+        }
+
+        internal static void OnPostInitialize()
+        {
+            Registrars.Get<Company>().ForEach(company => company.OnPostInitialized());
+
+        }
+
+        private static void OnUserLoggedOut(User user)
+        {
+            var userEmployer = Company.GetEmployer(user);
+            userEmployer?.UpdateOnlineState();
+
+        }
+
+        private void OnCurrencyHoldingsChanged(BankAccount bankAccount)
+        {
+           var company = Company.GetEmployer(bankAccount.AccountOwner);
+           if(company != null && bankAccount is not GovernmentBankAccount a)
+           {
+                Logger.Debug($"{company.Name} -> {bankAccount.Name} ({bankAccount.AccountOwner.Name}) changed");
+                company.OnEmployeeCurrencyHoldingsChanged(bankAccount);
+           }
+        }
+
+        private void OnBankAccountPermissionsChanged(BankAccount bankAccount)
+        {
+            if (ignoreBankAccountPermissionsChanged) { return; }
+            if (bankAccount == null || bankAccount.DualPermissions == null) { return; }
+            var company = Company.GetFromBankAccount(bankAccount);
+            if (company == null) { return; }
+            try
+            {
+                ignoreBankAccountPermissionsChanged = true;
+                // Logger.Debug($"Got OnBankAccountPermissionsChanged for {bankAccount.Name}, setting ownership to {company.Name}");
+                company.UpdateBankAccountAuthList(bankAccount);
+            }
+            finally
+            {
+                ignoreBankAccountPermissionsChanged = false;
+            }
+        }
+
+        private void OnVoidStorageAdded(INetObject netObj, object obj)
+        {
+            if (obj is not VoidStorageWrapper voidStorage) { return; }
+            foreach (var alias in voidStorage.CanAccess)
+            {
+                var company = Company.GetFromLegalPerson(alias);
+                if (company == null) { continue; }
+                company.OnLegalPersonGainedVoidStorage(voidStorage);
+            }
+        }
+
+        private void OnDeedDestroyed(Deed deed, User performer)
+        {
+            CompanyManager.HandleDeedDestroyed(deed);
+        }
+
+        private void OnDeedOwnerChanged(Deed deed)
+        {
+            if (deed.Destroying || deed.IsDestroyed) { return; }
+            CompanyManager.HandleDeedOwnerChanged(deed);
+        }
+
+        private void InstallLawManagerHack()
+        {
+            var oldLawManager = ServiceHolder<ILawManager>.Obj;
+            if (oldLawManager is LawManager oldLawManagerConcrete)
+            {
+                ServiceHolder<ILawManager>.Obj = new CompanyLawManager(oldLawManagerConcrete);
+            }
+            else
+            {
+                Logger.Error($"Failed to install law manager hack: ServiceHolder<ILawManager>.Obj was not of expected type");
+            }
         }
 
         private void InstallGameValueHack()
@@ -176,123 +378,5 @@ namespace Eco.Mods.Companies
         public string GetStatus() => string.Empty;
         public override string ToString() => Localizer.DoStr("Companies");
         public void SaveAll() => StorageManager.Obj.MarkDirty(data);
-
-        #region Chat Commands
-
-        [ChatCommand("Company", ChatAuthorizationLevel.User)]
-        public static void Company() { }
-
-        [ChatSubCommand("Company", "Found a new company.", ChatAuthorizationLevel.User)]
-        public static void Create(User user, string name)
-        {
-            var existingEmployer = Companies.Company.GetEmployer(user);
-            if (existingEmployer != null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't found a company as you're already a member of {existingEmployer}");
-                return;
-            }
-            name = name.Trim();
-            if (!CompanyManager.Obj.ValidateName(user.Player, name)) { return; }
-            var company = CompanyManager.Obj.CreateNew(user, name);
-            NotificationManager.ServerMessageToAll(
-                Localizer.Do($"{user.UILink()} has founded the company {company.UILink()}!"),
-                NotificationCategory.Government,
-                NotificationStyle.Chat
-            );
-        }
-
-        [ChatSubCommand("Company", "Invite another player to your company.", ChatAuthorizationLevel.User)]
-        public static void Invite(User user, User otherUser)
-        {
-            var company = Companies.Company.GetEmployer(user);
-            if (company == null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't send company invite as you are not a CEO of any company");
-                return;
-            }
-            if (user != company.Ceo)
-            {
-                user.Player?.OkBoxLoc($"Couldn't send company invite as you are not the CEO of {company.MarkedUpName}");
-                return;
-            }
-            company.TryInvite(user.Player, otherUser);
-        }
-
-        [ChatSubCommand("Company", "Withdraws an invitation for another player to your company.", ChatAuthorizationLevel.User)]
-        public static void Uninvite(User user, User otherUser)
-        {
-            var company = Companies.Company.GetEmployer(user);
-            if (company == null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't withdraw company invite as you are not a CEO of any company");
-                return;
-            }
-            if (user != company.Ceo)
-            {
-                user.Player?.OkBoxLoc($"Couldn't withdraw company invite as you are not the CEO of {company.MarkedUpName}");
-                return;
-            }
-            company.TryUninvite(user.Player, otherUser);
-        }
-
-        [ChatSubCommand("Company", "Removes an employee from your company.", ChatAuthorizationLevel.User)]
-        public static void Fire(User user, User otherUser)
-        {
-            var company = Companies.Company.GetEmployer(user);
-            if (company == null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't fire employee as you are not a CEO of any company");
-                return;
-            }
-            if (user != company.Ceo)
-            {
-                user.Player?.OkBoxLoc($"Couldn't fire employee as you are not the CEO of {company.MarkedUpName}");
-                return;
-            }
-            company.TryFire(user.Player, otherUser);
-        }
-
-        [ChatSubCommand("Company", "Accepts an invite to join a company.", ChatAuthorizationLevel.User)]
-        public static void Join(User user, Company company)
-        {
-            company.TryJoin(user.Player, user);
-        }
-
-        [ChatSubCommand("Company", "Resigns you from your current company.", ChatAuthorizationLevel.User)]
-        public static void Leave(User user)
-        {
-            var currentEmployer = Companies.Company.GetEmployer(user);
-            if (currentEmployer == null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't resign from your company as you're not currently employed");
-                return;
-            }
-            currentEmployer.TryLeave(user.Player, user);
-        }
-
-        [ChatSubCommand("Company", "Edits the company owned deed that you're currently standing in.", ChatAuthorizationLevel.User)]
-        public static void EditDeed(User user)
-        {
-            var company = Companies.Company.GetEmployer(user);
-            if (company == null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't edit company deed as you're not currently employed");
-                return;
-            }
-            var deed = PropertyManager.GetDeedWorldPos(new Vector2i((int)user.Position.X, (int)user.Position.Y));
-            if (deed == null)
-            {
-                user.Player?.OkBoxLoc($"Couldn't edit company deed as you're not standing on one");
-                return;
-            }
-            if (!company.OwnedDeeds.Contains(deed))
-            {
-                user.Player?.OkBoxLoc($"Couldn't edit company deed as it's not owned by {company.MarkedUpName}");
-                return;
-            }
-            DeedEditingUtil.EditInMap(deed, user);
-        }
-
-        #endregion
     }
 }

@@ -1,9 +1,7 @@
-﻿using System;
-
-namespace Eco.Mods.Companies
+﻿namespace Eco.Mods.Companies
 {
     using Shared.Localization;
-    using Shared.Utils;
+    using Shared.Logging;
 
     public static class Logger
     {
