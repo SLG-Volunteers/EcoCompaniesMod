@@ -10,7 +10,7 @@ jobs:
     name: Build Mod
     runs-on: ubuntu-latest
     env:
-      MODKIT_VERSION: 0.12.0.00-beta-release-898
+      MODKIT_VERSION: 0.12.0.00-beta-release-905
       ECO_BRANCH: staging
     steps:
     - uses: actions/checkout@v4
