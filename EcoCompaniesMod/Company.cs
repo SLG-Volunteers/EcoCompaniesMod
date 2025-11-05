@@ -1044,12 +1044,12 @@ namespace Eco.Mods.Companies
 
                     var positiveReputation   = ReputationManager.Obj.GetPositiveReputation(user);
                     var negativeReputation   = ReputationManager.Obj.GetRep(user) - positiveReputation;
-                    var relativeReputation   = (positiveReputation - ignoredReputation) + negativeReputation;
+                    var relativeReputation   = (positiveReputation - ignoredReputation);
 
                     reputationCountPostive  += relativeReputation;
                     reputationCountNegative += negativeReputation;
 
-                    // Logger.Info($"{positiveReputation} + {negativeReputation} = {relativeReputation} | {ignoredReputation} | {user.Name}");
+                    // Logger.Info($"{positiveReputation} - {ignoredReputation} + {negativeReputation} = {relativeReputation} | {user.Name}");
                 }
 
                 // Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
@@ -1060,7 +1060,7 @@ namespace Eco.Mods.Companies
                 reputationObj.AdjustRelationship(NegativeReputationGiver, reputationCountNegative, null, true);
                 reputationObj.AdjustRelationship(PositiveReputationGiver, reputationCountPostive, null, true);
 
-                //Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
+                // Logger.Info($"{reputationCountPostive} + {reputationCountNegative} = {LegalPerson.Reputation} | {LegalPerson.Name}");
 
                 if (currentReputation != LegalPerson.Reputation)
                 {
@@ -1111,6 +1111,7 @@ namespace Eco.Mods.Companies
                 {
                     if (!x.Result.IsEmpty()) { deed.Name = x.Result; }
 
+                    deed.Creator = LegalPerson;
                     deed.ForceChangeOwners(LegalPerson, OwnerChangeType.Normal); // we don't supress with ignoreOwnerChange here as we want the company to know about the deed
                     deed.MarkDirty();
 
@@ -1185,16 +1186,6 @@ namespace Eco.Mods.Companies
             voidStorage.CanAccess.AddUniqueRange(AllEmployees);
         }
 
-        private void UpdateVoidStorages()
-        {
-            foreach (var voidStorage in GlobalData.Obj.VoidStorageManager.VoidStorages.Where(x => x.CanUserAccess(LegalPerson)))
-            {
-                OnLegalPersonGainedVoidStorage(voidStorage);
-            }
-            GlobalData.Obj.VoidStorageManager.Changed(nameof(GlobalData.Obj.VoidStorageManager.AccessibleVoidStorages));
-            GameData.Obj.SaveAll();
-        }
-
         private void OnEmployeesChanged()
         {
             UpdateLegalPersonReputation();
@@ -1263,20 +1254,23 @@ namespace Eco.Mods.Companies
 
         private void UpdateDeedAuthList(Deed deed)
         {
-            //deed.Accessors.Set(AllEmployees);
             foreach (var _employee in AllEmployees) {
                 if (!deed.Accessors.Contains(_employee))
                 {
                     deed.Accessors.Add(_employee);
                 }
             }
-    
+
             if (deed == HQDeed)
             {
                 deed.Residency.Invitations.InvitationList.Set(AllEmployees.Where(x => !deed.Residency.Residents.Contains(x)));
+            }
+
+            if (!deed.Residency.AllowPlotsUnclaiming) // allow claiming/unclaining for company deeds as this options aren't available on company deeds by ceo/employees without changing the owner...
+            {
                 deed.Residency.AllowPlotsUnclaiming = true;
             }
-            
+
             deed.MarkDirty();
         }
 
