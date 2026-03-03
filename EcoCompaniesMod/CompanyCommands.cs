@@ -1,46 +1,28 @@
-﻿using System.Threading.Tasks;
-using System.Linq;
+﻿using System.Linq;
+using System.Threading.Tasks;
 
 namespace Eco.Mods.Companies
 {
     using Core.Systems;
-
-    using Shared.Localization;
-    using Shared.Utils;
-
-    using Gameplay.Players;
-    using Gameplay.Systems.TextLinks;
-    using Gameplay.Systems.Messaging.Chat.Commands;
-    using Gameplay.Civics.GameValues;
-    using Gameplay.Settlements;
-    using Gameplay.Items;
-    using Gameplay.Property;
-    using Gameplay.UI;
-    using Gameplay.Systems.NewTooltip;
     using Gameplay.Civics.Demographics;
+    using Gameplay.Civics.GameValues;
+    using Gameplay.Items;
+    using Gameplay.Players;
+    using Gameplay.Property;
+    using Gameplay.Settlements;
+    using Gameplay.Systems.Messaging.Chat.Commands;
+    using Gameplay.Systems.NewTooltip;
+    using Gameplay.Systems.TextLinks;
+    using Gameplay.UI;
+    using Shared.Localization;
     using Shared.Math;
+    using Shared.Utils;
 
     [ChatCommandHandler]
     public static class CompanyCommands
     {
         [ChatCommand("Company", ChatAuthorizationLevel.User)]
         public static void Company() { }
-
-        [ChatSubCommand("Company", "Check company mod configuration.", ChatAuthorizationLevel.User)]
-        public static void Status(User user)
-        {
-            var sb = new LocStringBuilder().AppendLine();
-            foreach (var configOption in CompaniesPlugin.Obj.PluginConfig.ConfigProperties.ToList())
-            {
-                var statusText = CompaniesPlugin.Obj.Config.GetStringPropertyByName(configOption.Key) == "True" ? "enabled" : "disabled";
-                var statusColor = (statusText == "enabled") ? Color.Green : Color.Red;
-
-                sb.AppendLineLoc($"{Text.Color(Color.BlueGrey, configOption.Key)} are {Text.Color(statusColor, statusText)}");
-                sb.AppendLineLoc($"{configOption.Value.Description}\n");
-            }
-
-            user.Player?.OpenInfoPanel($"Companies Mod Status", sb.ToString(), "pluginSettingsInfo");
-        }
 
         [ChatSubCommand("Company", "Found a new company.", ChatAuthorizationLevel.User)]
         public static async Task Create(User user, string name)
@@ -384,24 +366,22 @@ namespace Eco.Mods.Companies
 
             currentEmployer?.RefreshCompanyMarkers();
         }
-        
-        [ChatSubCommand("Company", "Provides admin-only options for company mod settings.", ChatAuthorizationLevel.Admin)]
-        public static void Configure(User user, string verb, bool newState)
-        {
 
-            if (!CompaniesPlugin.Obj.PluginConfig.ConfigProperties.ContainsKey(verb))
+        [ChatSubCommand("Company", "Changes the CEO to someone else...", ChatAuthorizationLevel.User)]
+        public static async void Promote(User user, User newCeo)
+        {
+            var currentEmployer = Companies.Company.GetEmployer(user);
+            if (currentEmployer != null && user != currentEmployer.Ceo)
             {
-                user.MsgLoc($"Valid settings are: {string.Join(", ", CompaniesPlugin.Obj.PluginConfig.ConfigProperties.Keys)}");
+                user.MsgLoc($"You need to be the CEO for this action.");
                 return;
             }
 
-            CompaniesPlugin.Obj.Config.SetPropertyByName(verb, newState);
-
-            var newStatus      = CompaniesPlugin.Obj.Config.GetStringPropertyByName(verb);
-            var newStatusText  = (newStatus == "True") ? "enabled" : "disabled";
-            var newStatusColor = (newStatus == "True") ? Color.Green : Color.Red;
-
-            user.MsgLoc($"{Text.QuotedBold(verb)} is now set to {Text.Color(newStatusColor, newStatusText)}");
+            
+            if(await user.Player.ConfirmBoxLoc($"You are transfering the ownership of {currentEmployer.UILinkNullSafe()} to {newCeo.UILinkNullSafe()}. Are you sure?"))
+            {
+                currentEmployer.ChangeCeo(newCeo);
+            }
         }
 
         [ChatSubCommand("Company", "Provides admin-only options for company employee management.", ChatAuthorizationLevel.Admin)]
