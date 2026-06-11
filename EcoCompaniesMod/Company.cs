@@ -893,6 +893,13 @@ namespace Eco.Mods.Companies
 
         public void OnReceiveMoney(MoneyGameAction moneyGameAction)
         {
+            // Internal movements between company-owned accounts are not economic inflow.
+            if (this.DoesOwnBankAccount(moneyGameAction.SourceBankAccount) &&
+                this.DoesOwnBankAccount(moneyGameAction.TargetBankAccount))
+            {
+                return;
+            }
+
             if (inReceiveMoney) { return; }
             inReceiveMoney = true;
             try
@@ -967,6 +974,13 @@ namespace Eco.Mods.Companies
 
         public void OnGiveMoney(MoneyGameAction moneyGameAction)
         {
+            // Internal movements between company-owned accounts are not economic outflow.
+            if (this.DoesOwnBankAccount(moneyGameAction.SourceBankAccount) &&
+                this.DoesOwnBankAccount(moneyGameAction.TargetBankAccount))
+            {
+                return;
+            }
+
             if (inGiveMoney) { return; }
             inGiveMoney = true;
             try

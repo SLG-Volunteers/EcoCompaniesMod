@@ -10,14 +10,14 @@ jobs:
     name: Build Mod
     runs-on: ubuntu-latest
     env:
-      MODKIT_VERSION: 0.11.1.12-beta-release-911
+      MODKIT_VERSION: 0.13.0.4-beta-release-1024
       ECO_BRANCH: staging
     steps:
     - uses: actions/checkout@v4
-    - name: Setup .NET Core 8.0
+    - name: Setup .NET 10.0
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: '10.0.x'
     - name: Fetch dependencies
       run: dotnet restore ./EcoCompaniesMod/EcoCompaniesMod.csproj
       env:
@@ -30,4 +30,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: mod-binaries-staging
-        path: EcoCompaniesMod/bin/Release/net8.0/EcoCompaniesMod.*
+        path: EcoCompaniesMod/bin/Release/net10.0/EcoCompaniesMod.*
